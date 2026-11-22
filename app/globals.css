@@ -1,0 +1,53 @@
+:root { --bg:#f3f6fb; --panel:#ffffff; --panel2:#f1f5fb; --text:#16263d; --muted:#637791;
+  --accent:#2563eb; --ok:#0f9d6e; --warn:#b7791f; --danger:#d64550; }
+* { box-sizing:border-box; }
+html,body { background:var(--bg); }
+body { margin:0; color:var(--text); font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+a { color:var(--accent); text-decoration:none; }
+button,input,select,textarea { font:inherit; }
+.shell { display:flex; min-height:100vh; }
+.sidebar { width:240px; background:#ffffff; border-right:1px solid var(--line,#dbe4f0); padding:22px 16px; position:sticky; top:0; height:100vh; }
+.brand { font-size:19px; font-weight:800; margin-bottom:4px; }
+.brand small { display:block; color:var(--muted); font-weight:400; font-size:11px; }
+.nav { display:flex; flex-direction:column; gap:4px; margin-top:26px; }
+.nav a { color:var(--muted); padding:10px 12px; border-radius:8px; font-size:14px; }
+.nav a:hover, .nav a.active { background:#eaf1fd; color:#123a78; }
+.main { flex:1; padding:28px 34px; min-width:0; }
+.topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:26px; gap:12px; }
+h1 { font-size:26px; margin:0 0 6px; }
+h2 { font-size:17px; margin:0 0 14px; }
+.muted { color:var(--muted); font-size:13px; }
+.card { background:#ffffff; border:1px solid #dbe4f0; border-radius:14px; padding:20px; margin-bottom:18px; box-shadow:0 8px 24px rgba(30,60,105,.05); }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; }
+.stat { font-size:30px; font-weight:800; margin:6px 0; color:#12233a; }
+.stat-label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th,td { text-align:left; padding:11px 10px; border-bottom:1px solid #e5ebf3; }
+th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; }
+.btn { background:var(--accent); border:0; color:#fff; padding:10px 15px; border-radius:8px; font-weight:700; cursor:pointer; }
+.btn.secondary { background:#fff; color:#234; border:1px solid #cbd8e8; }
+.btn.ghost { background:transparent; border:1px solid #dbe4f0; color:var(--muted); }
+.btn.sm { padding:7px 11px; font-size:12px; }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+.row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+input,select,textarea { background:#fff; border:1px solid #cfdcec; color:var(--text); border-radius:8px; padding:10px 12px; }
+input:focus,select:focus,textarea:focus { outline:2px solid #bfd4fb; border-color:var(--accent); }
+label { display:block; font-size:12px; color:var(--muted); margin-bottom:5px; }
+.badge { display:inline-block; padding:3px 9px; border-radius:99px; font-size:11px; background:#eaf1fd; color:#2554a0; border:1px solid #d3e3fb; }
+.badge.ok { background:#e7f7f0; color:#0f7d59; border-color:#c3eadb; }
+.badge.warn { background:#fff5df; color:#96620f; border-color:#f3dfb4; }
+.hero { max-width:760px; margin:12vh auto; text-align:center; }
+.hero h1 { font-size:52px; letter-spacing:-.02em; }
+.hero p { color:var(--muted); font-size:18px; line-height:1.6; }
+code { background:#eef3fa; padding:2px 6px; border-radius:5px; color:#2554a0; }
+.editor { width:100%; min-height:260px; font-family:ui-monospace,monospace; font-size:13px; }
+.block { background:#f5f8fd; border:1px solid #d9e4f2; border-radius:10px; padding:12px; margin-bottom:10px; }
+.error { color:var(--danger); font-size:13px; }
+/* Session gate: self-contained, no external assets or fonts required. */
+.session-screen{position:relative;min-height:100vh;display:grid;place-items:center;overflow:hidden;padding:28px;background:radial-gradient(ellipse at 48% -10%,#dfecff 0,transparent 46%),#f4f7fc;color:#172a48;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+.session-orb{position:absolute;border-radius:50%;filter:blur(1px);pointer-events:none}.session-orb-one{width:440px;height:440px;top:-220px;right:-160px;border:1px solid #c7dcff;box-shadow:0 0 0 62px #eaf2ff,0 0 0 125px #f0f6ff}.session-orb-two{width:230px;height:230px;bottom:-110px;left:-95px;background:#e8efff}
+.session-card{position:relative;text-align:center;width:min(100%,440px);padding:39px 42px 28px;background:#ffffffd9;border:1px solid #dce8fa;border-radius:25px;box-shadow:0 24px 70px #304e8020,0 2px 10px #304e800c;backdrop-filter:blur(18px)}
+.session-logo{display:flex;align-items:center;justify-content:center;gap:9px;font-size:22px;letter-spacing:-.05em;font-weight:800;color:#17355f}.session-logo img{width:31px;height:31px;object-fit:contain}
+.session-illustration{height:155px;position:relative;display:grid;place-items:center;margin:20px auto 10px}.session-ring{position:absolute;width:128px;height:128px;border-radius:50%;border:1px solid #e0ebfd;border-top:3px solid #3174e9;animation:session-spin 2s linear infinite}.session-ring-alt{width:96px;height:96px;border-color:#e8effc;border-bottom:3px solid #7bb3ff;border-top:1px solid #e8effc;animation-direction:reverse;animation-duration:2.8s}.session-center{display:grid;place-items:center;width:66px;height:66px;color:#3174e9;background:linear-gradient(145deg,#f7fbff,#e6f0ff);border-radius:22px;box-shadow:0 8px 22px #3475de20}
+.session-eyebrow{color:#6d85a8;font-size:10px;letter-spacing:.16em;font-weight:800}.session-card h1{font-size:23px;letter-spacing:-.04em;margin:10px 0 10px}.session-dot{color:#4382ed}.session-card p{font-size:14px;color:#7586a1;line-height:1.6;margin:0 auto;max-width:290px}.session-progress{height:4px;background:#edf2fb;border-radius:9px;overflow:hidden;margin:31px 0 19px}.session-progress i{display:block;width:38%;height:100%;background:linear-gradient(90deg,#80b8ff,#377be8);border-radius:9px;animation:session-progress 1.7s ease-in-out infinite}.session-bottom{display:flex;justify-content:space-between;font-size:11px;color:#91a0b5;font-weight:600}.session-bottom i{display:inline-block;background:#40bd92;width:7px;height:7px;border-radius:50%;margin-right:5px}
+@keyframes session-spin{to{transform:rotate(360deg)}}@keyframes session-progress{0%{transform:translateX(-105%)}100%{transform:translateX(270%)}}@media(max-width:480px){.session-card{padding:32px 24px 24px}.session-card h1{font-size:21px}}@media(prefers-reduced-motion:reduce){.session-ring,.session-progress i{animation:none}.session-progress i{width:55%}}
