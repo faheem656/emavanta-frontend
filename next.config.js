@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApiOrigin } from './lib/api-origin.mjs';
+import { resolveSiteOrigin } from './lib/site-origin.mjs';
 
 /** @type {import('next').NextConfig} */
 // Windows/macOS often resolve `localhost` to ::1 while the API binds IPv4-only,
@@ -9,6 +10,7 @@ import { resolveApiOrigin } from './lib/api-origin.mjs';
 // NOTE: never use process.env.PORT here — that is the *website* port on most hosts,
 // and proxying to yourself produces an endless loop (socket hang up).
 const origin = resolveApiOrigin();
+resolveSiteOrigin(); // Fail early rather than build with an incorrect public site URL.
 
 const nextConfig = {
   reactStrictMode: true,

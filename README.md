@@ -13,13 +13,13 @@ For local development set `API_ORIGIN=http://127.0.0.1:4000` in `.env.local`. Op
 
 ## Host frontend and backend separately
 
-Copy `.env.example` to `.env.local` for local configuration or set `API_ORIGIN` as an environment variable in the frontend host. It must be the backend origin reachable **from the Next.js server**, for example:
+Edit the included clean `.env` template (or copy `.env.example` to `.env.local`) for local configuration or set `API_ORIGIN` as an environment variable in the frontend host. It must be the backend origin reachable **from the Next.js server**, for example:
 
 ```dotenv
 API_ORIGIN=https://api.example.com
 ```
 
-Do not include `/api/v1` or credentials in this value. Use HTTPS or secure private networking between hosts. Do not use `localhost` when the backend is on a different host. Browsers always call the frontend's same-origin proxy; they do not connect to the backend's localhost. Set `API_ORIGIN` **before building** because Next.js embeds rewrite destinations at build time; rebuild/redeploy the frontend when it changes.
+Do not include `/api/v1` or credentials in this value. Use HTTPS or secure private networking between hosts. Do not use `localhost` when the backend is on a different host. Browsers always call the frontend's same-origin proxy; they do not connect to the backend's localhost. Set `API_ORIGIN` and `NEXT_PUBLIC_SITE_URL` **before building** because Next.js embeds rewrite destinations at build time; rebuild/redeploy the frontend when it changes.
 
 ```powershell
 npm ci
