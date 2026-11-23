@@ -8,7 +8,7 @@ export default function DashboardBanner({variant}) {
   <div className="dashboard-feature-copy">
    <span className="dashboard-feature-kicker">{automation?'WORKFLOW STUDIO':'CAMPAIGN WORKSPACE'}</span>
    <h2>{automation?'Design the journey, beautifully.':'Make every message matter.'}</h2>
-   <p>{automation?'Map your ideas into reusable workflow drafts. Execution is not available yet.':'Bring your audience, content and sending plan together in one thoughtful campaign.'}</p>
+   <p>{automation?'Turn a form, list or tag event into a paced email journey, with a mailbox for each step.':'Bring your audience, content and sending plan together in one thoughtful campaign.'}</p>
    <Link className="dashboard-feature-cta" href={automation?'/dashboard/automation/new':'/dashboard/campaigns/new'}><Icon name="plus" size={15}/>{automation?'Create a workflow':'Create a campaign'}</Link>
   </div>
   <div className="dashboard-feature-art" aria-hidden="true">

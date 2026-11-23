@@ -64,6 +64,16 @@ export default function HostedForm({ form }) {
     </div>;
   }
 
+  if (form.status === 'paused') {
+    return <section className="hf-card hf-paused" style={{ '--hf-accent': accent }} aria-labelledby="hf-paused-title">
+      <span className="fm-eyebrow">FORM TEMPORARILY PAUSED</span>
+      <h1 id="hf-paused-title">{form.headline || form.name}</h1>
+      {form.description ? <p className="hf-sub">{form.description}</p> : null}
+      <div className="hf-paused-message"><b aria-hidden="true">i</b><span>This form is not accepting responses right now. Please check back later.</span></div>
+      <p className="hf-fine">{form.organizationName ? `${form.organizationName} · ` : ''}Thank you for your interest.</p>
+    </section>;
+  }
+
   return <form className={`hf-card hf-${form.appearance?.layout === 'inline' ? 'inline' : 'card'}`}
     style={{ '--hf-accent': accent }} onSubmit={submit} noValidate>
     <h1>{form.headline || form.name}</h1>

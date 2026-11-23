@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
-import { post } from '../../../lib/api';
+import { useRouter } from 'next/navigation';
 import FAQ from '../../../components/FAQ';
+import { signupHrefForPlan } from '../../../lib/auth-flow';
 import { FALLBACK_PAYLOAD, fmtLimit } from '../../../lib/plans';
 
 const included = [
@@ -15,16 +16,12 @@ const included = [
 ];
 
 export default function Pricing(){
-  const [data,setData] = useState(FALLBACK_PAYLOAD);
+  const router = useRouter();
+  const [data] = useState(FALLBACK_PAYLOAD);
   const [annual,setAnnual] = useState(false);
-  const [msg,setMsg] = useState('');
 
   const price = p => annual ? Math.round(p.yearly / 12) : p.monthly;
-  const checkout = async p => {
-    try { const r = await post('/billing/checkout',{plan:p.code,interval:annual?'annual':'monthly'});
-      setMsg(r.url ? `Checkout ready: ${r.url}` : `Selected ${p.name}. Our billing team will open checkout shortly.`); }
-    catch(e){ setMsg(e.message); }
-  };
+  const selectPlan = p => router.push(signupHrefForPlan(p.code, annual ? 'annual' : 'monthly'));
 
   return <>
     <section className="hero2 container" style={{paddingBottom:18}}>
@@ -53,13 +50,13 @@ export default function Pricing(){
             <li><b>{fmtLimit(p.limits.campaigns)}</b> campaigns · <b>{fmtLimit(p.limits.sequences)}</b> sequences</li>
             <li>{['growth','scale','business'].includes(p.code) ? <b>No Emavanta footer on campaign emails & hosted forms</b> : 'Emavanta footer on campaign emails & hosted forms'}</li>
           </ul>
-          <button className={`btn ${p.code==='growth'?'':'secondary'}`} style={{marginTop:'auto'}} onClick={()=>checkout(p)}>
+          <button className={`btn ${p.code==='growth'?'':'secondary'}`} style={{marginTop:'auto'}} onClick={()=>selectPlan(p)}>
             {p.code==='free'?'Start free':'Choose '+p.name}
           </button>
         </div>)}
       </div>
+      <p className="pricing-auth-note">Choose a plan to create your workspace or sign in first. Payment checkout opens only after authentication; signing up does not charge you.</p>
       <p className="muted" style={{fontSize:12,marginTop:18}}>Footer-free means no Emavanta attribution in customer-facing campaign emails or hosted forms. Hosted form URLs and tracking links can still use the platform domain; account and security emails remain Emavanta-branded.</p>
-      {msg && <p className="notice" style={{marginTop:16}}>{msg}</p>}
       <div className="strip" style={{marginTop:26}}>
         {included.map(x=><span className="chip" key={x}>✓ {x}</span>)}
       </div>

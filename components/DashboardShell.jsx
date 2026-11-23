@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import Icon from './Icon';
-import ConnectionStatus from './ConnectionStatus';
 import { get, getStrict, post } from '../lib/api';
 import ToastProvider from './ToastProvider';
 
@@ -102,6 +101,19 @@ function Inner({ children }) {
   }, [query, path]);
 
   useEffect(() => {
+    if (!mobileOpen) return undefined;
+    const closeOnEscape = event => { if (event.key === 'Escape') setMobileOpen(false); };
+    const closeOnDesktop = event => { if (event.matches) setMobileOpen(false); };
+    const desktop = window.matchMedia('(min-width: 901px)');
+    document.addEventListener('keydown', closeOnEscape);
+    desktop.addEventListener?.('change', closeOnDesktop);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      desktop.removeEventListener?.('change', closeOnDesktop);
+    };
+  }, [mobileOpen]);
+
+  useEffect(() => {
     get('/notifications').then(r => setNotes(Array.isArray(r) ? r : r.items || []));
   }, [path]);
 
@@ -139,6 +151,9 @@ function Inner({ children }) {
       <div className="brand brand-row">
         <span className="logo-mark"><img src="/emavanta-mark.webp" alt="" /></span>
         {!collapsed && <img className="brand-wordmark" src="/emavanta-logo.webp" alt="Emavanta" />}
+        <button className="icon-btn mobile-close" onClick={() => setMobileOpen(false)} aria-label="Close menu">
+          <Icon name="close" size={17} />
+        </button>
       </div>
       <button className="side-toggle" onClick={toggle} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand' : 'Collapse'}>
         <Icon name="chevron" size={16} style={{ transform: collapsed ? 'none' : 'rotate(180deg)' }} />
@@ -170,6 +185,7 @@ function Inner({ children }) {
         <span className="status-dot" /> User-owned sending
       </div>}
     </aside>
+    {mobileOpen && <button type="button" className="drawer-scrim" aria-label="Close menu" onClick={() => setMobileOpen(false)} />}
 
     <main className="main">
       <div className="topbar">
@@ -187,7 +203,6 @@ function Inner({ children }) {
           </div>}
         </div>
         <div className="row">
-          <ConnectionStatus compact />
           <span className="crumb muted">{label}</span>
           <button className="icon-btn" title="Notifications"><Icon name="bell" size={18} />
             {notes.length > 0 && <span className="notif-dot" />}</button>
@@ -225,7 +240,6 @@ function Inner({ children }) {
             {verifyBusy ? 'Sending…' : verify.sent ? 'Sent — check your inbox' : 'Send the link'}</button>}
       </div>}
 
-      <ConnectionStatus />
       {children}
     </main>
   </div>;

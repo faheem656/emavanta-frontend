@@ -25,8 +25,8 @@ const GAP_PRESETS = [
 ];
 
 const INITIAL = {
-  name: '', stream: 'outreach', templateId: '', accountPool: [], sendMode: 'human', gapSeconds: 45,
-  rotation: 'sticky_by_contact', minDelaySec: 45, maxDelaySec: 90, dailyCap: 50, listIds: [], segmentIds: [],
+  name: '', description: '', stream: 'outreach', templateId: '', accountPool: [], sendMode: 'human', gapSeconds: 45,
+  rotation: 'round_robin', minDelaySec: 45, maxDelaySec: 90, dailyCap: 50, listIds: [], segmentIds: [],
   schedule: 'now', startAt: '', subject: '', preheader: '',
   sequenceSteps: []
 };
@@ -68,15 +68,20 @@ export default function NewCampaign() {
       .then(([a, t, l, sg]) => {
         const acc = arr(a), tpl = arr(t), ls = arr(l), segs = arr(sg);
         setAccounts(acc); setTemplates(tpl); setLists(ls); setSegments(segs);
-        setForm(f => ({
-          ...f,
-          templateId: f.templateId || tpl[0]?._id || '',
-          accountPool: f.accountPool.length ? f.accountPool : acc.slice(0, 1).map(x => x._id),
-          listIds: f.listIds.length ? f.listIds : ls.slice(0, 1).map(x => x._id),
-          sequenceSteps: (f.sequenceSteps || []).map(s => s.type === 'email'
-            ? { ...s, templateId: s.templateId || f.templateId || tpl[0]?._id || '', accountId: s.accountId || acc[0]?._id }
-            : s)
-        }));
+        setForm(f => {
+          const eligible = acc.filter(a => a.status === 'active' && (!a.stream || a.stream === f.stream)
+            && (!a.tokenExpiresAt || Date.parse(a.tokenExpiresAt) > Date.now()));
+          const eligibleIds = new Set(eligible.map(a => a._id));
+          return {
+            ...f,
+            templateId: f.templateId || tpl[0]?._id || '',
+            accountPool: f.accountPool.length ? f.accountPool.filter(id => eligibleIds.has(id)) : eligible.slice(0, 1).map(x => x._id),
+            listIds: f.listIds.length ? f.listIds : ls.slice(0, 1).map(x => x._id),
+            sequenceSteps: (f.sequenceSteps || []).map(s => s.type === 'email'
+              ? { ...s, templateId: s.templateId || f.templateId || tpl[0]?._id || '', accountId: s.accountId || eligible[0]?._id }
+              : s)
+          };
+        });
       })
       .catch(e => notify(toast, e))
       .finally(() => setLoading(false));
@@ -110,17 +115,20 @@ export default function NewCampaign() {
 
   const active = form.sequenceSteps[selected] || {};
   const selectedTemplate = templates.find(t => t._id === form.templateId) || null;
+  const availableAccounts = accounts.filter(a => a.status === 'active' && (!a.stream || a.stream === form.stream)
+    && (!a.tokenExpiresAt || Date.parse(a.tokenExpiresAt) > Date.now()));
+  const availableAccountIds = new Set(availableAccounts.map(a => a._id));
 
   const payload = () => ({
-    name: form.name.trim() || 'Untitled campaign', stream: form.stream,
+    name: form.name.trim() || 'Untitled campaign', description: form.description.trim(), stream: form.stream,
     sendMode: form.sendMode, gapSeconds: blast ? undefined : gap,
     templateId: form.templateId,
     listIds: form.listIds,
     accountPool: form.accountPool,
     rotation: form.rotation,
     sendPolicy: {
-      minDelaySec: blast ? 1 : Math.max(5, Math.round(gap * 0.8)),
-      maxDelaySec: blast ? 2 : Math.max(8, Math.round(gap * 1.2)),
+      minDelaySec: blast ? 5 : Math.max(5, Math.round(gap * 0.8)),
+      maxDelaySec: blast ? 10 : Math.max(10, Math.round(gap * 1.2)),
       jitterPct: blast ? 0 : 20, dailyCap: Number(form.dailyCap) || 50,
       weeklyCap: (Number(form.dailyCap) || 50) * 5, pauseOnReply: !blast,
       activeHours: blast ? { start: 0, end: 24 } : { start: 9, end: 18 }, weekend: blast
@@ -131,7 +139,9 @@ export default function NewCampaign() {
   const validate = () => {
     if (form.name.trim().length < 2) { toast({ title: 'Name your campaign', level: 'warn', message: 'Give it a name so you can find it later.' }); return false; }
     if (!payload().listIds.length) { toast({ title: 'Pick at least one list', level: 'warn', message: 'The Audience step needs at least one list.' }); return false; }
-    if (!payload().accountPool.length) { toast({ title: 'Pick a sending mailbox', level: 'warn', message: 'Connect a mailbox, then select it on the Audience step.' }); return false; }
+    if (!payload().accountPool.length || payload().accountPool.some(id => !availableAccountIds.has(id))) {
+      toast({ title: 'Choose an active sender pool', level: 'warn', message: 'Select one or more verified mailboxes that support this campaign’s stream.' }); return false;
+    }
     if (!payload().templateId) { toast({ title: 'Choose an email', level: 'warn', message: 'Pick a template — or create one on the Content step.' }); return false; }
     return true;
   };
@@ -176,7 +186,7 @@ export default function NewCampaign() {
     if (draft.status === 'saving') return <span className="autosave saving"><span className="spinner" /> Saving…</span>;
     if (draft.status === 'saved') return <span className="autosave ok"><Icon name="check" size={11} /> Saved {draft.savedAt ? new Date(draft.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>;
     if (draft.status === 'local') return <span className="autosave local"><Icon name="shield" size={11} /> Saved on this device</span>;
-    return <span className="autosave">{loading ? 'Loading…' : 'Autosave on'}</span>;
+    return <span className="autosave">{loading ? 'Preparing workspace…' : 'Autosave on'}</span>;
   };
 
   return <>
@@ -296,14 +306,21 @@ export default function NewCampaign() {
         <h2>Campaign settings</h2>
         <label>Campaign name</label><input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
         <label style={{ marginTop: 12 }}>Mail stream</label>
-        <select value={form.stream} onChange={e => setForm({ ...form, stream: e.target.value })}>
+        <select value={form.stream} onChange={e => {
+          const stream = e.target.value;
+          const allowed = new Set(accounts.filter(a => a.status === 'active' && (!a.stream || a.stream === stream)
+            && (!a.tokenExpiresAt || Date.parse(a.tokenExpiresAt) > Date.now())).map(a => a._id));
+          setForm(f => ({ ...f, stream, accountPool: f.accountPool.filter(id => allowed.has(id)) }));
+        }}>
           {['outreach', 'marketing', 'transactional'].map(x => <option key={x}>{x}</option>)}</select>
-        <label style={{ marginTop: 12 }}>Sending accounts</label>
-        <div className="picker">{accounts.map(a => <label key={a._id} className="pick"><input type="checkbox"
-          checked={form.accountPool.includes(a._id)} onChange={() => setForm(f => ({ ...f, accountPool: f.accountPool.includes(a._id) ? f.accountPool.filter(x => x !== a._id) : [...f.accountPool, a._id] }))} />{a.fromEmail}</label>)}</div>
+        <label style={{ marginTop: 12 }}>Verified sending mailboxes <span className="muted">({form.accountPool.length} selected)</span></label>
+        <p className="muted" style={{ fontSize: 11.5 }}>Select multiple senders. Round robin automatically assigns the next recipient to the next eligible mailbox.</p>
+        <div className="picker">{availableAccounts.length ? availableAccounts.map(a => <label key={a._id} className="pick"><input type="checkbox"
+          checked={form.accountPool.includes(a._id)} onChange={() => setForm(f => ({ ...f, accountPool: f.accountPool.includes(a._id) ? f.accountPool.filter(x => x !== a._id) : [...f.accountPool, a._id] }))} />{a.fromEmail}</label>)
+          : <span className="muted">No active mailbox supports this stream. <Link href="/dashboard/accounts">Connect or verify a sender</Link>.</span>}</div>
         <label style={{ marginTop: 12 }}>Account rotation</label>
         <select value={form.rotation} onChange={e => setForm({ ...form, rotation: e.target.value })}>
-          {['sticky_by_contact', 'round_robin', 'weighted', 'least_used', 'random_jitter'].map(x => <option key={x}>{x}</option>)}</select>
+          {[['round_robin','Round robin · rotate per recipient'],['least_used','Least used'],['weighted','Weighted'],['random_jitter','Randomized'],['sticky_by_contact','Sticky · same mailbox per contact']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select>
       </aside>
     </div>}
 

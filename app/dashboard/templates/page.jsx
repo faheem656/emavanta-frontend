@@ -4,9 +4,11 @@ import { get, del, patch, post } from '../../../lib/api';
 import { removeTemplate, visibleTemplates } from '../../../lib/templateDelete';
 import PageHead from '../../../components/PageHead';
 import TemplateBuilder from '../../../components/TemplateBuilder';
+import TemplateCardPreview from '../../../components/TemplateCardPreview';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
+import { CardGridSkeleton } from '../../../components/DashboardSkeleton';
 
 const arr = v => Array.isArray(v) ? v : (v?.items || []);
 export default function Templates(){
@@ -38,9 +40,9 @@ export default function Templates(){
   <section className="template-hub-hero"><div><span className="template-eyebrow">YOUR CREATIVE WORKSPACE</span><h2>Great emails start here.</h2><p>Build a reusable design once, then bring it into a campaign or workflow. Preview on desktop and mobile before saving.</p><button className="btn" onClick={openNew}><Icon name="plus" size={15}/> Create an email</button></div><div className="template-hero-art" aria-hidden="true"><span>✦</span><div><i></i><i></i><i></i><b>YOUR MESSAGE</b></div></div></section>
   <div className="template-library-heading"><div><h2>Your library <span className="badge">{items.length}</span></h2><p className="muted">Saved designs, ready when you need them.</p></div><input className="topbar-input" aria-label="Search templates" placeholder="Search name or subject…" value={query} onChange={e=>setQuery(e.target.value)}/></div>
   <div className="segmented template-filters">{[['all','All'],['blocks','Visual'],['code','HTML']].map(([v,l])=><button key={v} className={filter===v?'active':''} onClick={()=>setFilter(v)}>{l}</button>)}</div>
-  {loading ? <div className="empty">Loading templates…</div> : shown.length ? <div className="template-card-grid">{shown.map(t=><article className="template-library-card" key={t._id}>
-   <div className="template-card-art"><div className="template-paper"><span></span><i></i><i></i><i></i><b></b></div><span className="badge">{t.mode==='code'?'HTML':'Visual'}</span></div>
-   <div className="template-card-content"><h3>{t.name}</h3><p>{t.subject || 'No subject'}</p><div className="template-card-meta">Version {t.version||1}{t.updatedAt && <> · Updated {new Date(t.updatedAt).toLocaleDateString()}</>}</div>
+  {loading ? <CardGridSkeleton count={6} columns={3} /> : shown.length ? <div className="template-card-grid">{shown.map(t=><article className="template-library-card" key={t._id}>
+   <div className="template-card-art"><TemplateCardPreview template={t}/><span className="badge">{t.mode==='code'?'HTML':'Visual'}</span></div>
+   <div className="template-card-content"><h3>{t.name}</h3><p>{t.subject || 'No subject'}</p><div className="template-card-meta">{Array.isArray(t.blocks) ? `${t.blocks.length} content blocks` : 'Reusable email'} · Version {t.version||1}{t.updatedAt && <> · Updated {new Date(t.updatedAt).toLocaleDateString()}</>}</div>
    <div className="template-card-actions"><button className="btn secondary sm" onClick={()=>{setSelected(t);setEditing(true);}}>Edit template</button><button className="icon-btn sm" title="Duplicate template" aria-label={`Duplicate ${t.name}`} onClick={()=>duplicate(t)}><Icon name="copy" size={14}/></button><button className="icon-btn sm danger-text" title="Delete template" aria-label={`Delete ${t.name}`} onClick={()=>remove(t)}><Icon name="close" size={14}/></button></div></div>
   </article>)}</div> : <div className="card luxe-card empty template-empty"><h3>{items.length ? 'No templates match your search' : 'Your library is ready'}</h3><p className="muted">{items.length ? 'Try another name, subject or filter.' : 'Create your first reusable email in the visual editor or HTML.'}</p>{!items.length && <button className="btn sm" onClick={openNew}>Create a template</button>}</div>}
  </>;

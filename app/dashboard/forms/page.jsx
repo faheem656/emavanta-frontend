@@ -6,6 +6,7 @@ import PageHead from '../../../components/PageHead';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
+import { CardGridSkeleton, ListSkeleton } from '../../../components/DashboardSkeleton';
 
 const arr = v => Array.isArray(v) ? v : (v?.items || []);
 const TYPE_LABELS = {
@@ -23,6 +24,19 @@ const emptyDraft = () => ({
   appearance: { accent: '#2563eb', layout: 'card' }
 });
 
+const toFormDraft = form => ({
+  name: form.name || '', headline: form.headline || '', description: form.description || '',
+  submitLabel: form.submitLabel || 'Subscribe', successMessage: form.successMessage || '',
+  redirectUrl: form.redirectUrl || '', fields: form.fields || [], listId: form.listId || '',
+  automationId: form.automationId || '', tags: (form.tags || []).join(', '), doubleOptIn: !!form.doubleOptIn,
+  appearance: form.appearance || { accent: '#2563eb', layout: 'card' }
+});
+
+const categoryIcon = category => ({
+  'Audience growth': 'mail', 'Sales & demos': 'bolt', Events: 'users',
+  'Customer care': 'contacts', 'Product launch': 'send'
+}[category] || 'folder');
+
 export default function Forms() {
   const toast = useToast();
   const [rows, setRows] = useState([]);
@@ -34,41 +48,63 @@ export default function Forms() {
   const [embed, setEmbed] = useState(null);
   const [busy, setBusy] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [showStarterLibrary, setShowStarterLibrary] = useState(true);
   const [showNewList, setShowNewList] = useState(false);
   const [listName, setListName] = useState('');
   const [listBusy, setListBusy] = useState(false);
   const [listError, setListError] = useState('');
 
-  const load = async () => {
+  const load = async ({ initial = false, ensureDefaults = false } = {}) => {
+    if (initial) setLoading(true);
+    let seedWarning = '';
+    if (ensureDefaults) {
+      try { await post('/forms/ensure-defaults', {}); }
+      catch { seedWarning = 'Starter forms could not be refreshed. You can still create a blank form or try again.'; }
+    }
     try {
       const [list, meta] = await Promise.all([get('/forms'), get('/forms/meta/options')]);
       const items = arr(list);
       setRows(items);
       setOptions({ lists: arr(meta?.lists), automations: arr(meta?.automations) });
+      setLoadError(seedWarning);
       return items;
-    } finally { setLoading(false); }
+    } catch {
+      setLoadError('Forms could not be loaded. Check your connection and refresh to try again.');
+      return [];
+    } finally { if (initial) setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load({ initial: true, ensureDefaults: true }); }, []);
 
   const active = useMemo(() => rows.find(r => r._id === activeId) || null, [rows, activeId]);
+  const starterRows = useMemo(() => rows.filter(form => form.starterContent), [rows]);
+  const visibleRows = useMemo(() => rows.filter(form => {
+    const matchesStatus = statusFilter === 'all' || form.status === statusFilter;
+    const matchesSearch = !search.trim() || `${form.name} ${form.starterCategory || ''} ${form.slug}`.toLowerCase().includes(search.trim().toLowerCase());
+    return matchesStatus && matchesSearch;
+  }), [rows, search, statusFilter]);
+  const stats = useMemo(() => ({
+    total: rows.length,
+    live: rows.filter(form => form.status === 'live').length,
+    submissions: rows.reduce((total, form) => total + (Number(form.submissions) || 0), 0),
+    views: rows.reduce((total, form) => total + (Number(form.views) || 0), 0)
+  }), [rows]);
 
-  const openForm = async form => {
+  const openForm = form => {
     setActiveId(form._id);
+    setShowStarterLibrary(false);
     setTab('build');
-    setDraft({
-      name: form.name || '', headline: form.headline || '', description: form.description || '',
-      submitLabel: form.submitLabel || 'Subscribe', successMessage: form.successMessage || '',
-      redirectUrl: form.redirectUrl || '', fields: form.fields || [], listId: form.listId || '',
-      automationId: form.automationId || '', tags: (form.tags || []).join(', '), doubleOptIn: !!form.doubleOptIn,
-      appearance: form.appearance || { accent: '#2563eb', layout: 'card' }
-    });
+    setDraft(toFormDraft(form));
     setSubs({ items: [], total: 0 });
     setEmbed(null);
   };
 
   const newForm = () => {
     setActiveId(null);
+    setShowStarterLibrary(false);
     setDraft(emptyDraft());
     setTab('build');
     setEmbed(null);
@@ -172,34 +208,67 @@ export default function Forms() {
 
   return <>
     <PageHead title="Forms & hosted pages"
-      subtitle="Build a signup or contact form, put it on your own site, and watch submissions land here"
+      subtitle="Build polished signup pages, capture leads, and connect each form to the right audience."
       actions={<>
         <Link className="btn secondary sm" href="/dashboard/contacts"><Icon name="contacts" size={15} /> Contacts</Link>
-        <button className="btn sm" onClick={newForm}><Icon name="plus" size={15} /> New form</button>
+        <button className="btn ghost sm" onClick={() => { setShowStarterLibrary(true); setTab('build'); }}><Icon name="folder" size={15} /> Starter library</button>
+        <button className="btn sm" onClick={newForm}><Icon name="plus" size={15} /> New blank form</button>
       </>} />
 
-    <div className="notice" style={{ marginBottom: 14 }}>
-      <b>How it works:</b> each form gets its own public page (share the link), an iframe you can paste into any website,
-      and a plain HTML snippet that posts straight to this workspace. Every submission creates or updates a contact,
-      shows up in the submissions tab instantly, and can start an automation.
+    {loadError && <div className="notice warn" role="status" style={{ marginBottom: 14 }}>{loadError}</div>}
+
+    <section className="fm-hero" aria-label="Forms overview">
+      <div className="fm-hero-icon"><Icon name="inbox" size={22} /></div>
+      <div className="fm-hero-copy">
+        <span className="fm-eyebrow">CAPTURE · CONNECT · GROW</span>
+        <h2>One form, a smoother path to your audience</h2>
+        <p>Use a ready-made starting point, customize the fields and style, then share a hosted page or embed it on your site.</p>
+      </div>
+      <div className="fm-hero-note"><b>{loading ? 5 : starterRows.length} ready-made starters</b><span>Paused until you review and turn them on.</span></div>
+    </section>
+
+    <div className="fm-overview-stats" aria-label="Form statistics">
+      {[
+        { label: 'Total forms', value: stats.total, icon: 'folder', tone: 'blue' },
+        { label: 'Accepting responses', value: stats.live, icon: 'check', tone: 'green' },
+        { label: 'Submissions', value: stats.submissions.toLocaleString(), icon: 'inbox', tone: 'violet' },
+        { label: 'Page views', value: stats.views.toLocaleString(), icon: 'eye', tone: 'amber' }
+      ].map(item => <article className={`fm-overview-stat ${item.tone}`} key={item.label}>
+        <span className="fm-overview-icon"><Icon name={item.icon} size={16} /></span>
+        <span className="fm-overview-value">{item.value}</span>
+        <span className="fm-overview-label">{item.label}</span>
+      </article>)}
     </div>
 
     <div className="fm-grid">
       {/* ---------------------------------------------------------- */}
-      <div className="card" style={{ padding: 14 }}>
-        <div className="mini-row" style={{ marginBottom: 10 }}>
-          <h3 style={{ margin: 0 }}>Your forms</h3>
-          <span className="badge">{rows.length}</span>
+      <div className="card fm-library-card">
+        <div className="fm-library-head">
+          <div><h3>Your forms</h3><p>{rows.length} saved · {starterRows.length} starter{starterRows.length === 1 ? '' : 's'}</p></div>
+          <button className="icon-btn sm" type="button" title="Refresh forms" onClick={() => void load()} disabled={loading}><Icon name="refresh" size={15} /></button>
         </div>
-        {loading ? <p className="muted" style={{ fontSize: 12.5 }}>Loading…</p>
-          : rows.length === 0 ? <p className="muted" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
-            No forms yet. Create one and it is live immediately — you can embed it on your site in a minute.
-          </p>
+        <label className="fm-search">
+          <Icon name="search" size={15} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Find a form" aria-label="Find a form" />
+          {search && <button type="button" onClick={() => setSearch('')} aria-label="Clear search"><Icon name="close" size={13} /></button>}
+        </label>
+        <div className="fm-filter-row" role="group" aria-label="Filter forms by status">
+          {[['all','All'],['live','Live'],['paused','Paused']].map(([value,label]) => <button key={value} type="button"
+            className={statusFilter === value ? 'active' : ''} onClick={() => setStatusFilter(value)}>{label}
+            <span>{value === 'all' ? rows.length : rows.filter(form => form.status === value).length}</span></button>)}
+        </div>
+        {loading ? <ListSkeleton count={4} />
+          : rows.length === 0 ? <div className="fm-library-empty"><Icon name="inbox" size={23} /><b>Your form workspace is ready</b>
+            <span>Start with one of the ready-made forms or create a blank form from scratch.</span>
+            <button className="btn secondary sm" onClick={() => setShowStarterLibrary(true)}>Browse starter forms</button>
+          </div>
+          : visibleRows.length === 0 ? <div className="fm-library-empty compact"><b>No matches</b><span>Try another search or status filter.</span></div>
           : <div className="fm-list">
-            {rows.map(f => <button key={f._id} className={`fm-item ${f._id === activeId ? 'active' : ''}`} onClick={() => openForm(f)}>
-              <div className="mini-row"><b>{f.name}</b>
-                <span className={`badge ${f.status === 'paused' ? 'warn' : 'ok'}`}>{f.status === 'paused' ? 'paused' : 'live'}</span></div>
-              <span className="muted">{f.submissions ?? 0} submission{(f.submissions ?? 0) === 1 ? '' : 's'} · /f/{f.slug}</span>
+            {visibleRows.map(form => <button key={form._id} className={`fm-item ${form._id === activeId && !showStarterLibrary ? 'active' : ''}`} onClick={() => openForm(form)}>
+              <div className="mini-row"><b>{form.name}</b><span className={`badge ${form.status === 'paused' ? 'warn' : 'ok'}`}>{form.status === 'paused' ? 'Paused' : 'Live'}</span></div>
+              <span className="fm-item-meta">{form.starterContent && <span className="fm-starter-chip">Starter</span>}
+                <span>{form.starterCategory || 'Custom form'}</span><span>·</span><span>{form.submissions ?? 0} submissions</span></span>
+              <span className="fm-item-url">/f/{form.slug}</span>
             </button>)}
           </div>}
       </div>
@@ -211,13 +280,19 @@ export default function Forms() {
             <button key={k} className={tab === k ? 'on' : ''} onClick={() => switchTab(k)}>{label}</button>)}
         </div>
 
-        {tab === 'build' && <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.15fr) minmax(0,.85fr)', alignItems: 'start' }}>
+        {tab === 'build' && showStarterLibrary && <StarterGallery forms={starterRows} loading={loading}
+          onUse={openForm} onBlank={newForm} />}
+
+        {tab === 'build' && !showStarterLibrary && <div className="grid" style={{ gridTemplateColumns: 'minmax(0,1.15fr) minmax(0,.85fr)', alignItems: 'start' }}>
           <div className="card luxe-card" style={{ padding: 16 }}>
             <div className="mini-row">
               <h3 style={{ margin: 0 }}>{activeId ? 'Edit form' : 'New form'}</h3>
               {activeId && <button className="btn ghost sm" onClick={toggleStatus} disabled={busy === 'status'}>
                 {active?.status === 'paused' ? 'Turn on' : 'Pause'}</button>}
             </div>
+            {active?.starterContent && <div className="fm-starter-callout"><span><Icon name="folder" size={15} /></span>
+              <p><b>Starter form · {active.starterCategory}</b><br />This example is paused by default and has no audience list or automation attached. Review the content, connect what you need, then turn it on when you are ready.</p>
+            </div>}
 
             <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
               <div><label>Form name</label>
@@ -389,6 +464,37 @@ export default function Forms() {
       </div>
     </div>
   </>;
+}
+
+function StarterGallery({ forms, loading, onUse, onBlank }) {
+  return <section className="fm-starter-library" aria-labelledby="fm-starter-title">
+    <div className="fm-starter-header">
+      <div><span className="fm-eyebrow">READY-MADE STARTING POINTS</span>
+        <h2 id="fm-starter-title">Choose a form, then make it yours</h2>
+        <p>Five useful layouts for common goals. Each starts paused, without a list or automation, so you can review everything before sharing.</p>
+      </div>
+      <button className="btn secondary sm" onClick={onBlank}><Icon name="plus" size={14} /> Build from scratch</button>
+    </div>
+    {loading ? <CardGridSkeleton count={4} columns={2} />
+      : forms.length ? <div className="fm-starter-grid">
+        {forms.map(form => <article className="fm-starter-card" key={form._id}
+          style={{ '--fm-card-accent': form.appearance?.accent || '#3158c9' }}>
+          <div className="fm-starter-card-top">
+            <span className="fm-starter-icon"><Icon name={categoryIcon(form.starterCategory)} size={17} /></span>
+            <span className="badge warn">Paused by default</span>
+          </div>
+          <span className="fm-starter-category">{form.starterCategory || 'Starter form'}</span>
+          <h3>{form.name}</h3>
+          <p>{form.description}</p>
+          <div className="fm-starter-details"><span>{form.fields?.length || 1} fields</span><span>Hosted page + embed code</span></div>
+          <button className="fm-starter-use" onClick={() => onUse(form)}>Customize this form <Icon name="chevron" size={15} /></button>
+        </article>)}
+      </div> : <div className="fm-no-starters"><Icon name="inbox" size={22} /><b>No starter forms available yet</b>
+        <span>You can still build a blank form; refresh later to load the starter library.</span>
+        <button className="btn secondary sm" onClick={onBlank}>Create a blank form</button>
+      </div>}
+    <div className="fm-starter-footnote"><Icon name="shield" size={14} /> No form is published or connected to an audience until you review it and choose to turn it on.</div>
+  </section>;
 }
 
 const Empty = ({ text }) => <div className="empty" style={{ padding: '26px 18px', textAlign: 'center' }}>

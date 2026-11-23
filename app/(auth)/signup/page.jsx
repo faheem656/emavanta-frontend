@@ -1,8 +1,9 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { post } from '../../../lib/api';
+import { authDestination, readPlanSelection, signInHrefFor } from '../../../lib/auth-flow';
 import AuthShell, { AuthField } from '../../../components/AuthShell';
 import EmailOtp from '../../../components/EmailOtp';
 
@@ -18,6 +19,11 @@ export default function Signup() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [verification, setVerification] = useState(null);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+
+  useEffect(() => {
+    setSelectedPlan(readPlanSelection(window.location.search));
+  }, []);
 
   const set = (key, value) => { setForm(f => ({ ...f, [key]: value })); setErrors(e => ({ ...e, [key]: null })); };
 
@@ -50,17 +56,31 @@ export default function Signup() {
 
   if (verification) return <EmailOtp initial={verification} onVerified={result => {
     localStorage.setItem('emavanta_token', result.token);
-    router.push('/dashboard');
-  }} onBack={() => router.push('/signin')} />;
+    router.push(authDestination(window.location.search));
+  }} onBack={() => router.push(signInHrefFor(window.location.search))} />;
 
   const strength = score(form.password);
+  const selectedPlanSearch = selectedPlan
+    ? `?plan=${encodeURIComponent(selectedPlan.code)}&interval=${encodeURIComponent(selectedPlan.interval)}`
+    : '';
+  const signInHref = selectedPlan ? signInHrefFor(selectedPlanSearch) : '/signin';
 
   return <AuthShell eyebrow="Get started" title="Your engine." highlight="Your accounts."
     lead="Create a workspace in about a minute. Nothing to install, no card, and you can explore before connecting a mailbox."
     bullets={['Free plan starts after email verification', 'Connect your own sending account', 'Manage your workspace and contacts']}
     footer={<p className="au-note" style={{ textAlign: 'center' }}>
-      Already have a workspace? <Link href="/signin">Sign in</Link>
+      Already have a workspace? <Link href={signInHref}>Sign in</Link>
     </p>}>
+    {selectedPlan && <div className="au-plan-summary" aria-live="polite">
+      <span className="au-plan-check" aria-hidden="true">✓</span>
+      <div><span className="au-plan-eyebrow">YOUR SELECTED PLAN</span>
+        <b>{selectedPlan.name}</b>
+        <span>{selectedPlan.monthly === 0 ? 'Free · no payment required' : selectedPlan.interval === 'annual'
+          ? `$${selectedPlan.yearly}/year · billed annually`
+          : `$${selectedPlan.monthly}/month · billed monthly`}</span>
+      </div>
+      <Link href="/pricing">Change</Link>
+    </div>}
     <div className="au-steps"><i className="on" /><i /></div>
     <h2>Create your workspace</h2>
     <p className="au-sub">Four fields, then verify the code sent to your email.</p>

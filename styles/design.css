@@ -82,7 +82,7 @@ tr:hover td{ background:#f6f9fe; }
 .crumb { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; margin-right:6px; }
 .notif-dot { width:8px; height:8px; border-radius:50%; background:var(--danger); position:absolute; margin-top:-14px; margin-left:12px; }
 .icon-btn { position:relative; }
-.mobile-menu { display:none; }
+.mobile-menu,.mobile-close,.drawer-scrim { display:none; }
 @media (max-width:900px){
   .shell .sidebar { position:fixed; left:0; top:0; z-index:50; transform:translateX(-110%); box-shadow:12px 0 40px rgba(20,40,80,.16); }
   .shell .sidebar.mobile-open { transform:none; }
@@ -854,11 +854,11 @@ input.invalid, select.invalid { border-color:#e0a0a0; background:#fff8f8; }
     background:#fff; box-shadow:24px 0 60px rgba(15,35,70,.22); }
   .shell .sidebar { transition:transform .26s cubic-bezier(.22,.75,.28,1); }
   .shell .sidebar .brand { margin-bottom:10px; }
+  .shell .mobile-close { display:grid; flex:none; margin-left:auto; }
+  .shell .drawer-scrim { display:block; position:fixed; inset:0; z-index:49; width:100%; height:100%;
+    padding:0; border:0; border-radius:0; background:rgba(15,28,48,.32); cursor:default; }
   .shell .nav a { padding:11px 12px; font-size:13.5px; }
   .nav-group-head { padding:10px 10px 6px; font-size:10.5px; }
-  /* tap-outside scrim so the drawer feels like a real sheet */
-  .shell .sidebar.mobile-open::after { content:''; position:fixed; inset:0; left:288px;
-    background:rgba(15,28,48,.32); z-index:-1; }
 }
 
 /* ------------------------------------------------------------------ */

@@ -15,6 +15,7 @@ const ago = iso => {
  if(s < 86400) return `${Math.round(s/3600)} h ago`;
  return `${Math.round(s/86400)} d ago`;
 };
+const expiryLabel = iso => iso && Number.isFinite(Date.parse(iso)) ? new Date(iso).toLocaleString() : '—';
 
 export default function Security(){
  const toast = useToast();
@@ -76,20 +77,21 @@ export default function Security(){
   <div className="grid" style={{gridTemplateColumns:'1.5fr 1fr',alignItems:'start',marginTop:16}}>
    <div className="card luxe-card" style={{padding:18}}>
     <div className="mini-row"><div><h2 style={{margin:0}}>Sessions</h2>
-      <p className="muted" style={{margin:'4px 0 0'}}>New sessions stay signed in until logout or revocation. Owner and admin can sign devices out.</p></div>
+      <p className="muted" style={{margin:'4px 0 0'}}>Sessions expire at the time shown; set SESSION_TTL_DAYS in backend/.env (default 30; e.g. 2 or 30 days, range 1–365). Restart the backend after changing it. Logout or owner/admin revocation ends them sooner.</p></div>
      <button className="btn ghost sm" onClick={revokeAll} disabled={!canManage||busy==='all'}>
       <Icon name="shield" size={14}/> {busy==='all'?'Working…':'Sign out others'}</button></div>
-    <table style={{marginTop:12}}><thead><tr><th>Device</th><th>IP</th><th>Signed in</th><th>Status</th><th></th></tr></thead><tbody>
+    <table style={{marginTop:12}}><thead><tr><th>Device</th><th>IP</th><th>Signed in</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>
      {active.map(s=><tr key={s._id}>
       <td><div className="row" style={{gap:8}}><span className="device-ico"><Icon name="bolt" size={13}/></span>
         <div><b style={{fontSize:12.5}}>{s.device||'Unknown device'}</b>
          <div className="muted" style={{fontSize:11}}>{s.current?'This device':s.role||'member'}</div></div></div></td>
       <td className="muted">{s.ip||'—'}</td>
       <td className="muted">{ago(s.createdAt)}</td>
+      <td className="muted" title={s.expiresAt||''}>{expiryLabel(s.expiresAt)}</td>
       <td>{s.current?<span className="badge ok">current</span>:<span className="badge">active</span>}</td>
       <td>{canManage && !s.current && <button className="btn ghost sm" onClick={()=>revoke(s._id)}>Sign out</button>}</td>
      </tr>)}
-     {!active.length && <tr><td colSpan={5} className="empty">No active sessions — sign in to see devices here</td></tr>}
+     {!active.length && <tr><td colSpan={6} className="empty">No active sessions — sign in to see devices here</td></tr>}
     </tbody></table>
     {!canManage && <p className="muted" style={{marginTop:10,fontSize:12}}>Only owners and admins can revoke other sessions.</p>}
    </div>

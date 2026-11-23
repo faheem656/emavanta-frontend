@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { post } from '../../../lib/api';
+import { authDestination } from '../../../lib/auth-flow';
 import AuthShell, { AuthField } from '../../../components/AuthShell';
 import EmailOtp from '../../../components/EmailOtp';
 
@@ -36,7 +37,7 @@ export default function Signin() {
     localStorage.setItem('emavanta_token', data.token);
     if (data.user?.email) localStorage.setItem('emavanta_email', data.user.email);
     setNotice('Signed in. Opening your workspace…');
-    router.push('/dashboard');
+    router.push(authDestination(window.location.search));
   };
 
   const submit = async event => {

@@ -8,6 +8,7 @@ import Modal from '../../../components/Modal';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
+import { TableSkeleton } from '../../../components/DashboardSkeleton';
 
 const arr = v => Array.isArray(v) ? v : (v?.items || []);
 const cadence = c => {
@@ -32,16 +33,19 @@ export default function Campaigns(){
  const [testEmail,setTestEmail] = useState('');
  const [testResult,setTestResult] = useState(null);
  const [msg,setMsg] = useState('');
- const [form,setForm] = useState({ name:'', stream:'outreach', templateId:'demo-template', listIds:['demo-list'],
-   accountPool:['demo-account'], rotation:'sticky_by_contact', minDelaySec:45, maxDelaySec:90, dailyCap:50 });
+ const [loading,setLoading] = useState(true);
+ const [form,setForm] = useState({ name:'', stream:'outreach', templateId:'', listIds:[],
+   accountPool:[], rotation:'round_robin', minDelaySec:45, maxDelaySec:90, dailyCap:50 });
 
- const load = () => {
-  get('/campaigns').then(r => setItems(arr(r)));
-  get('/accounts').then(r => setAccounts(arr(r)));
-  get('/templates').then(r => setTemplates(arr(r)));
-  get('/contacts/lists').then(r => setLists(arr(r)));
+ const load = async () => {
+  const results = await Promise.allSettled([get('/campaigns'), get('/accounts'), get('/templates'), get('/contacts/lists')]);
+  if (results[0].status === 'fulfilled') setItems(arr(results[0].value));
+  if (results[1].status === 'fulfilled') setAccounts(arr(results[1].value));
+  if (results[2].status === 'fulfilled') setTemplates(arr(results[2].value));
+  if (results[3].status === 'fulfilled') setLists(arr(results[3].value));
+  setLoading(false);
  };
- useEffect(() => { load(); }, []);
+ useEffect(() => { void load(); }, []);
 
  const stats = useMemo(() => {
   const sent = items.reduce((n,c)=>n+(c.stats?.sent||0),0);
@@ -56,10 +60,11 @@ export default function Campaigns(){
 
  const create = async () => {
   if (!form.name.trim()) { toast('Give the campaign a name','warn'); return; }
+  if (!form.templateId) { toast('Choose a template first','warn'); return; }
   if (!form.listIds.length || !form.accountPool.length) { toast('Select at least one list and sending account','warn'); return; }
   try {
    const c = await post('/campaigns', { name:form.name.trim(), stream:form.stream,
-    templateId: form.templateId || 'demo-template',
+    templateId: form.templateId,
     listIds: form.listIds, accountPool: form.accountPool, rotation: form.rotation,
     sendPolicy: { minDelaySec:Number(form.minDelaySec), maxDelaySec:Number(form.maxDelaySec),
       jitterPct:20, dailyCap:Number(form.dailyCap), weeklyCap:Number(form.dailyCap)*5,
@@ -129,14 +134,15 @@ export default function Campaigns(){
      <button className="btn ghost sm" onClick={load} title="Refresh"><Icon name="refresh" size={15}/></button>
     </div>
    </div>
-   <table className="campaign-table"><thead><tr>
+   {loading ? <TableSkeleton rows={6} columns={7} /> : <table className="campaign-table"><thead><tr>
     <th>Campaign</th><th>Stream</th><th>Status</th><th>Progress</th><th>Cadence</th><th>Accounts</th><th>Actions</th>
    </tr></thead><tbody>
     {visible.map(c=>{ const total=(c.stats?.sent||0)+(c.stats?.queued||0);
      const pct=Math.min(100,(total ? Math.round(((c.stats?.sent||0)/total)*100) : 0));
      return <tr key={c._id}>
       <td><div className="campaign-name"><span className="campaign-icon"><Icon name="send" size={16}/></span>
-        <div><Link href={`/dashboard/campaigns/${encodeURIComponent(c._id)}`}><b>{c.name}</b></Link><div className="muted mono">{c._id.slice(0,8)}</div></div></div></td>
+        <div><div className="row" style={{gap:7}}><Link href={`/dashboard/campaigns/${encodeURIComponent(c._id)}`}><b>{c.name}</b></Link>{c.starterContent&&<span className="badge">Starter draft</span>}</div>
+         <div className="muted" style={{fontSize:11.5,maxWidth:300}}>{c.description||c._id.slice(0,8)}</div></div></div></td>
       <td><span className="badge">{c.stream}</span></td>
       <td><span className={`badge ${statusTone(c.status)}`}>{c.status}</span></td>
       <td style={{minWidth:150}}><div className="progress"><i style={{width:`${pct}%`}}/></div>
@@ -144,6 +150,7 @@ export default function Campaigns(){
       <td><span className="muted">{cadence(c)}</span></td>
       <td>{(c.accountPool||[]).length || '—'}</td>
       <td><div className="row" style={{gap:6}}>
+       {c.status==='draft'&&<Link className="btn ghost sm" href={`/dashboard/campaigns/${encodeURIComponent(c._id)}/edit`} title="Edit draft">Edit</Link>}
        {c.status==='draft'||c.status==='paused'
         ? <button className="btn secondary sm" onClick={()=>askLaunch(c)}><Icon name="bolt" size={14}/> Launch</button>
         : <button className="btn ghost sm" onClick={()=>pause(c)}>Pause</button>}
@@ -154,7 +161,7 @@ export default function Campaigns(){
       </div></td>
      </tr>;})}
     {!visible.length&&<tr><td colSpan={7}><div className="empty">No campaigns match this view. Create one to get started.</div></td></tr>}
-   </tbody></table>
+   </tbody></table>}
    {msg&&<p className="muted">{msg}</p>}
   </div>
 
@@ -164,15 +171,15 @@ export default function Campaigns(){
    <div className="grid">
     <div><label>Campaign name</label><input style={{width:'100%'}} placeholder="Q4 product launch" value={form.name}
       onChange={e=>setForm({...form,name:e.target.value})}/></div>
-    <div><label>Mail stream</label><select value={form.stream} onChange={e=>setForm({...form,stream:e.target.value})}>
+    <div><label>Mail stream</label><select value={form.stream} onChange={e=>{const stream=e.target.value;setForm(f=>({...f,stream,accountPool:f.accountPool.filter(id=>accounts.some(a=>a._id===id&&a.status==='active'&&(!a.stream||a.stream===stream)))}));}}>
      {['outreach','marketing','transactional'].map(x=><option key={x}>{x}</option>)}</select></div>
    </div>
    <div className="grid" style={{marginTop:14}}>
     <div><label>Template</label><select value={form.templateId} onChange={e=>setForm({...form,templateId:e.target.value})}>
-     <option value="demo-template">Choose a template…</option>
+     <option value="">Choose a template…</option>
      {templates.map(t=><option key={t._id} value={t._id}>{t.name}</option>)}</select></div>
     <div><label>Account rotation</label><select value={form.rotation} onChange={e=>setForm({...form,rotation:e.target.value})}>
-     {['sticky_by_contact','round_robin','weighted','least_used','random_jitter'].map(x=><option key={x}>{x}</option>)}</select></div>
+     {[['round_robin','Round robin · rotate per recipient'],['least_used','Least used'],['weighted','Weighted'],['random_jitter','Randomized'],['sticky_by_contact','Sticky · same mailbox per contact']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></div>
    </div>
    <div className="divider"/>
    <div className="grid">
@@ -181,9 +188,9 @@ export default function Campaigns(){
        checked={form.listIds.includes(l._id)} onChange={()=>toggleIn('listIds',l._id)}/>{l.name||l._id}</label>)
       :<span className="muted">No lists yet</span>}</div></div>
     <div><label className="stat-label">Sending accounts</label>
-     <div className="picker">{accounts.length?accounts.map(a=><label key={a._id} className="pick"><input type="checkbox"
+     <div className="picker">{accounts.some(a=>a.status==='active'&&(!a.stream||a.stream===form.stream))?accounts.filter(a=>a.status==='active'&&(!a.stream||a.stream===form.stream)).map(a=><label key={a._id} className="pick"><input type="checkbox"
        checked={form.accountPool.includes(a._id)} onChange={()=>toggleIn('accountPool',a._id)}/>{a.fromEmail||a._id}</label>)
-      :<span className="muted">Connect an account first</span>}</div></div>
+      :<span className="muted">No verified mailbox for this stream — connect or verify a sender first.</span>}</div></div>
    </div>
    <div className="divider"/>
    <div className="grid3">

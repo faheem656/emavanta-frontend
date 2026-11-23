@@ -5,6 +5,7 @@ import { get } from '../../lib/api';
 import { AreaChart, Donut, Bars, Ring } from '../../components/Charts';
 import Icon from '../../components/Icon';
 import PageHead from '../../components/PageHead';
+import DashboardSkeleton from '../../components/DashboardSkeleton';
 
 const arr = v => Array.isArray(v) ? v : (v?.items || []);
 const pct = (a, b) => b > 0 ? Math.round((a / b) * 1000) / 10 : 0;
@@ -17,20 +18,29 @@ export default function Overview(){
  const [alerts,setAlerts] = useState(null);
  const [activity,setActivity] = useState([]);
  const [tick,setTick] = useState(0);
+ const [loading,setLoading] = useState(true);
 
  useEffect(() => {
-  const load = () => {
-   get('/analytics/overview').then(r => { if(r && !Array.isArray(r)) setS(r); });
-   get('/analytics/tracking?limit=60').then(r => { if(r && !Array.isArray(r)) setTracking(r); });
-   get('/campaigns').then(r => setCampaigns(arr(r)));
-   get('/sequences').then(r => setAutomations(arr(r)));
-   get('/billing/alerts').then(r => { if(r && !Array.isArray(r)) setAlerts(r); });
-   get('/activity').then(r => setActivity(arr(r)));
+  let alive = true;
+  const load = async () => {
+   const results = await Promise.allSettled([
+    get('/analytics/overview'), get('/analytics/tracking?limit=60'), get('/campaigns'),
+    get('/sequences'), get('/billing/alerts'), get('/activity')
+   ]);
+   if (!alive) return;
+   const [overview, trackingData, campaignData, sequenceData, alertData, activityData] = results;
+   if (overview.status === 'fulfilled' && overview.value && !Array.isArray(overview.value)) setS(overview.value);
+   if (trackingData.status === 'fulfilled' && trackingData.value && !Array.isArray(trackingData.value)) setTracking(trackingData.value);
+   if (campaignData.status === 'fulfilled') setCampaigns(arr(campaignData.value));
+   if (sequenceData.status === 'fulfilled') setAutomations(arr(sequenceData.value));
+   if (alertData.status === 'fulfilled' && alertData.value && !Array.isArray(alertData.value)) setAlerts(alertData.value);
+   if (activityData.status === 'fulfilled') setActivity(arr(activityData.value));
    setTick(t => t + 1);
+   setLoading(false);
   };
-  load();
-  const timer = setInterval(load, 20000);
-  return () => clearInterval(timer);
+  void load();
+  const timer = setInterval(() => { void load(); }, 20000);
+  return () => { alive = false; clearInterval(timer); };
  }, []);
 
  const stats = s?.stats || {};
@@ -67,6 +77,8 @@ export default function Overview(){
  const weekly = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((label,i)=>({
   label, value: days.length ? (timeline[days[Math.min(i, days.length-1)]]?.sent || 0) : 0
  }));
+
+ if (loading) return <DashboardSkeleton variant="overview" />;
 
  return <>
   <PageHead title="Dashboard" subtitle="Your sending, your accounts — one operating picture"
