@@ -350,7 +350,7 @@ export default function Billing() {
 
             <p>
               {isManualOverride
-                ? 'Manually assigned plan'
+                ? 'crypto'
                 : isFreePlan
                   ? 'Free workspace plan'
                   : sub?.source === 'crypto'
@@ -414,7 +414,7 @@ export default function Billing() {
 
         {/* MANUAL PLAN INFORMATION */}
 
-        {isManualOverride && (
+        {/* {isManualOverride && (
           <p className="billing-footnote">
             Manually assigned term. No payment was
             recorded here and no automatic renewal
@@ -423,7 +423,7 @@ export default function Billing() {
             {!sub?.expiresAt &&
               ' This older manual plan has no recorded end date; ask the owner to set a term.'}
           </p>
-        )}
+        )} */}
 
         {/* MISSING END DATE */}
 
