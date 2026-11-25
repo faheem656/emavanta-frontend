@@ -16,6 +16,20 @@ const stepLabel = s => s.type === 'email' ? 'Send an email' : s.type === 'delay'
 const STEPS = ['Overview', 'How it sends', 'Audience', 'Content', 'Review & launch'];
 
 /** Quick pauses a human would actually use, plus a free entry. */
+const TIMEZONE_OPTIONS = [
+  'Asia/Karachi', 'UTC', 'Asia/Dubai', 'Asia/Kolkata',
+  'Europe/London', 'Europe/Berlin', 'America/New_York',
+  'America/Chicago', 'America/Los_Angeles', 'Asia/Singapore',
+  'Australia/Sydney'
+];
+
+const WEEKDAYS = [
+  { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' }, { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
+  { value: 7, label: 'Sun' }
+];
+
 const GAP_PRESETS = [
   { label: '30 seconds', value: 30 },
   { label: '1 minute', value: 60 },
@@ -28,6 +42,7 @@ const INITIAL = {
   name: '', description: '', stream: 'outreach', templateId: '', accountPool: [], sendMode: 'human', gapSeconds: 45,
   rotation: 'round_robin', minDelaySec: 45, maxDelaySec: 90, dailyCap: 50, listIds: [], segmentIds: [],
   schedule: 'now', startAt: '', subject: '', preheader: '',
+  timezone: '', startTime: '09:00', endTime: '17:00', daysOfWeek: [1, 2, 3, 4, 5],
   sequenceSteps: []
 };
 
@@ -50,6 +65,14 @@ export default function NewCampaign() {
   const [newTpl, setNewTpl] = useState(null); // the full template editor, opened over the wizard
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(INITIAL);
+
+  useEffect(() => {
+    const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    setForm(current => ({
+      ...current,
+      timezone: current.timezone || browserTimezone
+    }));
+  }, []);
 
   // Everything the wizard holds, saved as one blob (draft resumption needs both).
   const draftState = useMemo(() => ({ step, form }), [step, form]);
@@ -103,6 +126,12 @@ export default function NewCampaign() {
   });
   const toggleList = id => setForm(f => ({ ...f, listIds: f.listIds.includes(id) ? f.listIds.filter(x => x !== id) : [...f.listIds, id] }));
   const toggleSegment = id => setForm(f => ({ ...f, segmentIds: f.segmentIds.includes(id) ? f.segmentIds.filter(x => x !== id) : [...f.segmentIds, id] }));
+  const toggleScheduleDay = day => setForm(current => ({
+    ...current,
+    daysOfWeek: current.daysOfWeek.includes(day)
+      ? current.daysOfWeek.filter(value => value !== day)
+      : [...current.daysOfWeek, day].sort((a, b) => a - b)
+  }));
 
   /* ---------------- pacing maths (plain language) ---------------- */
   const recipients = lists.filter(l => form.listIds.includes(l._id)).reduce((n, l) => n + (l.count || 0), 0);
@@ -131,7 +160,17 @@ export default function NewCampaign() {
       maxDelaySec: blast ? 10 : Math.max(10, Math.round(gap * 1.2)),
       jitterPct: blast ? 0 : 20, dailyCap: Number(form.dailyCap) || 50,
       weeklyCap: (Number(form.dailyCap) || 50) * 5, pauseOnReply: !blast,
-      activeHours: blast ? { start: 0, end: 24 } : { start: 9, end: 18 }, weekend: blast
+      timezone: form.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      schedule: {
+        startTime: form.startTime,
+        endTime: form.endTime,
+        daysOfWeek: form.daysOfWeek
+      },
+      activeHours: {
+        start: Number(form.startTime.split(':')[0]),
+        end: Math.min(24, Number(form.endTime.split(':')[0]) + (form.endTime.endsWith(':00') ? 0 : 1))
+      },
+      weekend: form.daysOfWeek.includes(6) || form.daysOfWeek.includes(7)
     },
     sequenceSteps: []
   });
@@ -143,6 +182,10 @@ export default function NewCampaign() {
       toast({ title: 'Choose an active sender pool', level: 'warn', message: 'Select one or more verified mailboxes that support this campaign’s stream.' }); return false;
     }
     if (!payload().templateId) { toast({ title: 'Choose an email', level: 'warn', message: 'Pick a template — or create one on the Content step.' }); return false; }
+    if (!form.daysOfWeek.length || form.startTime >= form.endTime) {
+      toast({ title: 'Check sending schedule', level: 'warn', message: 'Choose at least one day and make sure the end time is later than the start time.' });
+      return false;
+    }
     return true;
   };
 
@@ -244,6 +287,45 @@ export default function NewCampaign() {
           </button>
         </div>
 
+        <div className="card luxe-card" style={{ padding: 18, marginTop: 16 }}>
+          <h3 style={{ marginTop: 0 }}>When should emails be sent?</h3>
+          <p className="muted" style={{ marginTop: -4 }}>
+            Your campaign will only send during this time window, regardless of the sending mode.
+          </p>
+          <div style={{ marginBottom: 14 }}>
+            <label>Timezone</label>
+            <select value={form.timezone || 'UTC'} onChange={e => setForm({ ...form, timezone: e.target.value })}>
+              {[...new Set([form.timezone, ...TIMEZONE_OPTIONS].filter(Boolean))].map(zone =>
+                <option key={zone} value={zone}>{zone.replaceAll('_', ' ')}</option>
+              )}
+            </select>
+          </div>
+          <div className="row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div style={{ flex: '1 1 140px' }}>
+              <label>Start time</label>
+              <input type="time" value={form.startTime} onChange={e => setForm({ ...form, startTime: e.target.value })} />
+            </div>
+            <div style={{ flex: '1 1 140px' }}>
+              <label>End time</label>
+              <input type="time" value={form.endTime} onChange={e => setForm({ ...form, endTime: e.target.value })} />
+            </div>
+          </div>
+          <label>Sending days</label>
+          <div className="row" style={{ gap: 7, flexWrap: 'wrap', marginTop: 8 }}>
+            {WEEKDAYS.map(day => (
+              <button key={day.value} type="button"
+                className={`chip ${form.daysOfWeek.includes(day.value) ? 'chip-active' : ''}`}
+                onClick={() => toggleScheduleDay(day.value)}>
+                {day.label}
+              </button>
+            ))}
+          </div>
+          <div className="notice" style={{ marginTop: 14 }}>
+            Emails are allowed from <b>{form.startTime}</b> to <b>{form.endTime}</b> ({form.timezone || 'your timezone'}).
+            {' '}Selected days: <b>{form.daysOfWeek.length ? WEEKDAYS.filter(day => form.daysOfWeek.includes(day.value)).map(day => day.label).join(', ') : 'none'}</b>.
+          </div>
+        </div>
+
         {!blast && <div className="card luxe-card" style={{ padding: 18, marginTop: 16 }}>
           <h3 style={{ marginTop: 0 }}>How long between two emails?</h3>
           <p className="muted" style={{ marginTop: -4 }}>A random pause of ±20% is added around this number so the pattern never looks mechanical.</p>
@@ -267,8 +349,7 @@ export default function NewCampaign() {
         </div>}
 
         {blast && <div className="notice warn" style={{ marginTop: 16 }}>
-          <b>Blast sends immediately.</b> Everything goes out in batches as fast as the mailboxes allow —
-          great for a launch to your own list, riskier for cold outreach. Nothing sends until you confirm on the last step.
+          <b>Blast mode sends faster, not outside your schedule.</b> Emails are processed in batches as fast as your mailboxes allow, but only during the days and hours selected above. Nothing sends until you confirm on the last step.
         </div>}
       </div>
 
@@ -276,8 +357,8 @@ export default function NewCampaign() {
         <h2>What this changes</h2>
         <div className="check-list">
           <div className="check-row"><span className="check-dot ok">✓</span>{blast ? 'All recipients queued at once' : `One email every ~${gap}s`}</div>
-          <div className="check-row"><span className="check-dot ok">✓</span>{blast ? 'No working-hours window' : 'Inside working hours only'}</div>
-          <div className="check-row"><span className="check-dot ok">✓</span>{blast ? 'Weekend sending allowed' : 'Weekends skipped'}</div>
+          <div className="check-row"><span className="check-dot ok">?</span>{form.startTime} to {form.endTime} ({form.timezone || 'selected timezone'})</div>
+          <div className="check-row"><span className="check-dot ok">?</span>{WEEKDAYS.filter(day => form.daysOfWeek.includes(day.value)).map(day => day.label).join(', ') || 'No days selected'}</div>
           <div className="check-row"><span className="check-dot ok">✓</span>bounces &amp; replies tracked either way</div>
         </div>
         <div className="divider" />
@@ -382,8 +463,8 @@ export default function NewCampaign() {
         <div className={`notice ${recipients ? '' : 'warn'}`} style={{ marginBottom: 14 }}>
           {recipients
             ? blast
-              ? <>This campaign is a <b>blast</b>: the selected emails go out as fast as your mailboxes allow once you confirm. Nothing sends before that.</>
-              : <>One email every <b>{gap}s</b> is about <b>{perHour} emails per hour</b>, capped at <b>{perDay} per day</b>. Actual delivery time depends on working hours, account limits and queue conditions. Nothing sends until you confirm.</>
+              ? <>This campaign uses <b>blast mode</b>: emails are processed as fast as your mailboxes allow, but only between <b>{form.startTime} and {form.endTime}</b> on your selected days ({form.timezone || 'selected timezone'}). Nothing sends before confirmation.</>
+              : <>One email every <b>{gap}s</b> is about <b>{perHour} emails per hour</b>, capped at <b>{perDay} per day</b>. Sending is limited to {form.startTime}-{form.endTime} on your selected days ({form.timezone || 'selected timezone'}). Nothing sends until you confirm.</>
             : <>Pick at least one list on the Audience step and the finish time appears here.</>}
         </div>
         <div className="review-grid">
