@@ -15,7 +15,7 @@ export default function SessionGate({ children, mode }) {
   try {
    const me=await getStrict('/auth/me');
    if(current!==epoch.current)return;
-   if(!me?.user?.id)throw Object.assign(new Error('Invalid session'),{status:401});
+   if(!me?.user?.id)throw Object.assign(new Error('Incomplete session response'),{status:502,code:'INVALID_AUTH_RESPONSE'});
    if(mode==='guest'){setState('checking');router.replace('/dashboard');}else setState('ready');
   }catch(e){
    if(current!==epoch.current)return;
