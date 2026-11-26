@@ -15,7 +15,7 @@ const cadence = c => {
   const p = c.sendPolicy || {};
   return `${p.minDelaySec || 45}–${p.maxDelaySec || 90}s · ${p.dailyCap || 50}/day`;
 };
-const statusTone = s => s === 'queued' ? 'ok' : s === 'paused' ? 'warn' : s === 'completed' ? 'ok' : '';
+const statusTone = s => s === 'queued' ? 'ok' : s === 'paused' ? 'warn' : s === 'scheduled' ? 'warn' : s === 'completed' ? 'ok' : '';
 
 export default function Campaigns(){
  const toast = useToast();
@@ -126,7 +126,7 @@ export default function Campaigns(){
 
   <div className="card luxe-card campaign-panel" style={{marginTop:16}}>
    <div className="campaign-toolbar">
-    <div className="tabs">{['all','draft','queued','paused','completed'].map(t=><button key={t}
+    <div className="tabs">{['all','draft','scheduled','queued','paused','completed'].map(t=><button key={t}
       className={filter===t?'active':''} onClick={()=>setFilter(t)}>{t}</button>)}</div>
     <div className="row">
      <div className="topbar-search"><Icon name="search" size={15}/>
@@ -151,8 +151,8 @@ export default function Campaigns(){
       <td>{(c.accountPool||[]).length || '—'}</td>
       <td><div className="row" style={{gap:6}}>
        {c.status==='draft'&&<Link className="btn ghost sm" href={`/dashboard/campaigns/${encodeURIComponent(c._id)}/edit`} title="Edit draft">Edit</Link>}
-       {c.status==='draft'||c.status==='paused'
-        ? <button className="btn secondary sm" onClick={()=>askLaunch(c)}><Icon name="bolt" size={14}/> Launch</button>
+       {c.status==='draft'||c.status==='paused'||c.status==='scheduled'
+        ? <button className="btn secondary sm" onClick={()=>askLaunch(c)}><Icon name="bolt" size={14}/> {c.status==='scheduled'?'Launch now':'Launch'}</button>
         : <button className="btn ghost sm" onClick={()=>pause(c)}>Pause</button>}
        <button className="btn ghost sm" onClick={()=>runPreflight(c)} title="Preflight"><Icon name="check" size={14}/></button>
        <button className="btn ghost sm" onClick={()=>{setTestTarget(c);setTestResult(null);setTestEmail('');}} title="Send test"><Icon name="mail" size={14}/></button>

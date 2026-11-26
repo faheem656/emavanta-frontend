@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { get, post, patch, del } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Modal from '../../../components/Modal';
 import CheckoutPanel from '../../../components/CheckoutPanel';
 import Icon from '../../../components/Icon';
@@ -25,11 +26,14 @@ export default function Team(){
  const [saving,setSaving] = useState('');
  const [checkout,setCheckout] = useState(null);
  const [pendingInvite,setPendingInvite] = useState(null);
+ const [loaded,setLoaded] = useState(false);
 
  const load = () => {
-  get('/team/members').then(r=>setMembers(Array.isArray(r)?r:[])).catch(()=>{});
-  get('/team/teams').then(r=>setTeams(Array.isArray(r)?r:[])).catch(()=>{});
-  get('/billing/usage').then(r=>setUsage(r)).catch(()=>{});
+  Promise.allSettled([
+   get('/team/members').then(r=>setMembers(Array.isArray(r)?r:[])),
+   get('/team/teams').then(r=>setTeams(Array.isArray(r)?r:[])),
+   get('/billing/usage').then(r=>setUsage(r))
+  ]).then(()=>setLoaded(true));
  };
  useEffect(() => { load(); }, []);
 
@@ -113,6 +117,8 @@ export default function Team(){
     toast(r.revoked ? `${m.email} signed out of ${r.revoked} device(s)` : `${m.email} had no active sessions`); openSessions(m); }
   catch(e){ notify(toast, e); }
  };
+
+ if (!loaded) return <DashboardSkeleton variant="table" rows={6} columns={5} />;
 
  return <>
  <PageHead title="Team & access" subtitle="Roles, invites, shared resources and client scopes"

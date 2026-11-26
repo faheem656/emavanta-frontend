@@ -38,7 +38,7 @@ export function TableSkeleton({ rows = 5, columns = 5 }) {
   </div>;
 }
 
-export default function DashboardSkeleton({ variant = 'overview', showHeader = true }) {
+export default function DashboardSkeleton({ variant = 'overview', showHeader = true, rows = 5, columns = 5 }) {
   return <div className={`page-skeleton page-skeleton-${variant}`} role="status" aria-label="Dashboard data loading">
     {showHeader && <div className="skeleton-page-head">
       <div><SkeletonBlock style={{ width: variant === 'admin' ? 250 : 165, height: 21 }} />
@@ -46,7 +46,23 @@ export default function DashboardSkeleton({ variant = 'overview', showHeader = t
       <div className="skeleton-head-actions"><SkeletonBlock style={{ width: 106, height: 35 }} /><SkeletonBlock style={{ width: 126, height: 35 }} /></div>
     </div>}
 
-    {variant === 'admin' ? <>
+    {variant === 'table' ? <>
+      <div className="skeleton-kpis">{[0, 1, 2, 3].map(i => <div className="skeleton-card" key={i}>
+        <SkeletonBlock style={{ width: '52%', height: 8 }} />
+        <SkeletonBlock style={{ width: '68%', height: 24, marginTop: 12 }} />
+        <SkeletonBlock style={{ width: '44%', height: 8, marginTop: 10 }} />
+      </div>)}</div>
+      <div className="skeleton-card"><SkeletonBlock style={{ width: 172, height: 13 }} /><TableSkeleton rows={rows} columns={columns} /></div>
+    </> : variant === 'cards' ? <>
+      <div className="skeleton-card" style={{ padding: 16 }}>
+        <SkeletonBlock style={{ width: 190, height: 13 }} />
+        <div className="row" style={{ gap: 8, marginTop: 14 }}>
+          <SkeletonBlock style={{ width: 150, height: 36 }} /><SkeletonBlock style={{ width: 150, height: 36 }} />
+          <SkeletonBlock style={{ width: 150, height: 36 }} />
+        </div>
+      </div>
+      <CardGridSkeleton count={4} columns={2} />
+    </> : variant === 'admin' ? <>
       <div className="skeleton-tabs">{[0, 1, 2, 3, 4].map(i => <SkeletonBlock key={i} style={{ width: 116 + (i % 2) * 28, height: 36 }} />)}</div>
       <div className="skeleton-admin-grid">
         {[0, 1, 2].map(i => <div className="skeleton-card" key={i}>

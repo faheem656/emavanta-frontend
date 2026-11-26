@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { get, post, del } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
@@ -27,12 +28,15 @@ export default function Security(){
  const [busy,setBusy] = useState('');
  const [showPw,setShowPw] = useState({currentPassword:false,newPassword:false,repeat:false});
  const [tick,setTick] = useState(0);
+ const [loaded,setLoaded] = useState(false);
 
  const load = () => {
-  get('/security/audit/verify').then(r=>{ if(r && !Array.isArray(r)) setAudit(r); }).catch(()=>{});
-  get('/security/sessions').then(r=>setSessions(Array.isArray(r)?r:[])).catch(()=>{});
-  get('/security/mfa/status').then(r=>{ if(r && !Array.isArray(r)) setMfa(r); }).catch(()=>{});
-  get('/auth/me').then(setMe).catch(()=>{});
+  Promise.allSettled([
+   get('/security/audit/verify').then(r=>{ if(r && !Array.isArray(r)) setAudit(r); }),
+   get('/security/sessions').then(r=>setSessions(Array.isArray(r)?r:[])),
+   get('/security/mfa/status').then(r=>{ if(r && !Array.isArray(r)) setMfa(r); }),
+   get('/auth/me').then(setMe)
+  ]).then(()=>setLoaded(true));
  };
  useEffect(() => { load(); const t = setInterval(() => setTick(x=>x+1), 15000); return () => clearInterval(t); }, []);
 
@@ -57,6 +61,7 @@ export default function Security(){
  };
 
  const active = sessions.filter(s=>s.status==='active');
+ if (!loaded) return <DashboardSkeleton variant="table" rows={5} columns={6} />;
  return <>
   <PageHead title="Security" subtitle="Authenticator, live sessions and the tamper-evident audit chain"
    actions={<Link className="btn sm" href="/dashboard/settings"><Icon name="shield" size={15}/> 2FA &amp; workspace</Link>}/>

@@ -2,13 +2,16 @@
 import { useEffect, useState } from 'react';
 import { get, post } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
 export default function Consent(){
  const toast=useToast(); const [items,setItems]=useState([]),[form,setForm]=useState({email:'',source:'website-form',textVersion:'v1'});
- const load=()=>get('/consent').then(setItems).catch(()=>{}); useEffect(() => { load(); }, []);
+ const [loaded,setLoaded]=useState(false);
+ const load=()=>get('/consent').then(setItems).catch(()=>{}).finally(()=>setLoaded(true)); useEffect(() => { load(); }, []);
  const add=async()=>{try{await post('/consent',form);toast('Consent recorded');load();}catch(e){notify(toast, e);}};
+ if (!loaded) return <DashboardSkeleton variant="table" rows={5} columns={5} />;
  return <>
   <PageHead title="Consent evidence" subtitle="Who opted in, when, from where, and under which text version"/>
   <div className="card"><div className="row"><input placeholder="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>

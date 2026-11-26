@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { post, patch } from '../lib/api';
 import Icon from './Icon';
 import { useToast } from './ToastProvider';
@@ -105,6 +105,8 @@ export default function TemplateBuilder({ initial, onSaved, onBack, onStarted })
   const toast = useToast();
   const [tpl, setTpl] = useState(initial || null);
   const [mode, setMode] = useState(initial?.mode || '');
+  // What we last persisted — the auto-save effect diffs against this.
+  const savedRef = useRef(initial || null);
   const [selected, setSelected] = useState(0);
   const [tab, setTab] = useState('content');
   const [result, setResult] = useState(null);
@@ -115,6 +117,7 @@ export default function TemplateBuilder({ initial, onSaved, onBack, onStarted })
 
   useEffect(() => {
     setTpl(initial || null); setMode(initial?.mode || ''); setSelected(0); setResult(null); setTab('content');
+    savedRef.current = initial || null;
   }, [initial?._id]);
 
   const start = choice => {
@@ -173,27 +176,54 @@ export default function TemplateBuilder({ initial, onSaved, onBack, onStarted })
     setMode(next);
   };
 
-  const save = async () => {
-    if (!tpl) return;
+  // Auto-save bookkeeping: when we last persisted.
+  const [autosavedAt, setAutosavedAt] = useState(null);
+
+  const buildPayload = () => ({
+    name: tpl.name?.trim().length >= 2 ? tpl.name : 'Untitled template',
+    subject: tpl.subject?.trim() || 'Hello from {{sender_name}}',
+    mode: tpl.mode || 'blocks',
+    blocks: (tpl.blocks?.length ? tpl.blocks : [{ type: 'raw_html', content: tpl.html || '<div></div>' }]),
+    styles: tpl.styles || {},
+    html: tpl.html
+  });
+
+  const persist = async ({ silent = false } = {}) => {
+    if (!tpl) return null;
+    const payload = buildPayload();
+    const saved = tpl._id ? await patch(`/templates/${tpl._id}`, payload) : await post('/templates', payload);
+    const merged = { ...tpl, ...saved };
+    savedRef.current = merged;
+    setTpl(merged);
+    setMode(saved.mode || payload.mode);
+    setAutosavedAt(Date.now());
+    onSaved?.(saved);
+    if (silent) return saved;
     setBusy('save');
     try {
-      const payload = {
-        name: tpl.name?.trim().length >= 2 ? tpl.name : 'Untitled template',
-        subject: tpl.subject?.trim() || 'Hello from {{sender_name}}',
-        mode: tpl.mode || 'blocks',
-        blocks: (tpl.blocks?.length ? tpl.blocks : [{ type: 'raw_html', content: tpl.html || '<div></div>' }]),
-        styles: tpl.styles || {},
-        html: tpl.html
-      };
-      const saved = tpl._id ? await patch(`/templates/${tpl._id}`, payload) : await post('/templates', payload);
-      setTpl({ ...tpl, ...saved });
-      setMode(saved.mode || payload.mode);
       const check = await post(`/templates/${saved._id}/preflight`, { tokens: { first_name: 'Dana' } }).catch(() => null);
       setResult({ check });
       toast(check?.ok ? 'Saved — preflight passed' : check ? 'Saved — check the preflight notes' : 'Saved — preflight unavailable');
-      onSaved?.(saved);
-    } catch (e) { notify(toast, e); } finally { setBusy(''); }
+    } finally { setBusy(''); }
+    return saved;
   };
+
+  const save = async () => {
+    if (!tpl) return;
+    setBusy('save');
+    try { await persist(); } catch (e) { notify(toast, e); } finally { setBusy(''); }
+  };
+
+  // Debounced auto-save — same feel as the campaign wizard: create on first
+  // edit, then keep PATCHing silently. Comparing against savedRef keeps this
+  // from looping. The Save & preflight button stays for a full validation run.
+  useEffect(() => {
+    if (!tpl || busy) return;
+    if (JSON.stringify(tpl) === JSON.stringify(savedRef.current)) return;
+    const t = setTimeout(() => { persist({ silent: true }).catch(() => {}); }, 1500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tpl, busy]);
 
   if (!tpl) return <div className="tpl-chooser">
     <button className="tpl-choice" onClick={() => start('blocks')}>
@@ -223,6 +253,9 @@ export default function TemplateBuilder({ initial, onSaved, onBack, onStarted })
         <button className={mode === 'code' ? 'active' : ''} onClick={() => { changeMode('code'); }}>Code</button>
       </div>
       <button className="btn secondary sm" onClick={() => setShowPreview(v => !v)}><Icon name="eye" size={14} /> {showPreview ? 'Hide' : 'Show'} preview</button>
+      <span className="muted" style={{ fontSize:11.5, marginRight:8 }}>
+        {autosavedAt ? `Auto-saved ✓ ${new Date(autosavedAt).toLocaleTimeString()}` : 'Auto-save on'}
+      </span>
       <button className="btn sm" onClick={save} disabled={busy === 'save'}>{busy === 'save' ? 'Saving…' : 'Save & preflight'}</button>
     </div>
 

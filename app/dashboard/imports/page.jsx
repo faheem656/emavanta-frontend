@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { get, post } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
 
@@ -9,10 +10,12 @@ export default function Imports(){
  const toast=useToast();
  const [csv,setCsv]=useState('email,first_name,company\nalice@example.com,Alice,Acme\n');
  const [lists,setLists]=useState([]);
- useEffect(()=>{get('/contacts/lists').then(r=>setLists(Array.isArray(r)?r:[])).catch(e=>notify(toast,e));},[]);
+ const [loaded,setLoaded]=useState(false);
+ useEffect(()=>{get('/contacts/lists').then(r=>setLists(Array.isArray(r)?r:[])).catch(e=>notify(toast,e)).finally(()=>setLoaded(true));},[]);
  const [listId,setListId]=useState(''),[batch,setBatch]=useState(null),[result,setResult]=useState(null);
  const stage=async()=>{try{const r=await post('/imports/csv',{csv,listIds:listId?[listId]:[]});setBatch(r);setResult(null);toast('Staged '+r.accepted+' rows');}catch(e){notify(toast, e);}};
  const commit=async()=>{try{setResult(await post(`/imports/${batch.batchId}/commit`,{}));toast('Import committed');}catch(e){notify(toast, e);}};
+ if(!loaded) return <DashboardSkeleton variant="cards" />;
  return <>
   <PageHead title="CSV import" subtitle="Stage a CSV, then save contacts and add existing contacts to your chosen list"/>
   <div className="card"><h2>Paste CSV</h2>

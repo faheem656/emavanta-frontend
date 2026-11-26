@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { get, post } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
@@ -21,11 +22,14 @@ export default function Deliverability(){
  const [seed,setSeed] = useState(null);
  const [busy,setBusy] = useState('');
 
+ const [loaded,setLoaded] = useState(false);
  useEffect(() => {
-  get('/deliverability/reputation').then(r => setReputation(r && !Array.isArray(r) ? r : null));
-  get('/deliverability/streams').then(r => setStreams(r?.streams || null));
-  get('/deliverability/warmup-plan?days=7').then(r => setPlan(Array.isArray(r) ? r : (r?.plan || [])));
-  get('/accounts').then(r => setAccounts(Array.isArray(r) ? r : []));
+  Promise.allSettled([
+   get('/deliverability/reputation').then(r => setReputation(r && !Array.isArray(r) ? r : null)),
+   get('/deliverability/streams').then(r => setStreams(r?.streams || null)),
+   get('/deliverability/warmup-plan?days=7').then(r => setPlan(Array.isArray(r) ? r : (r?.plan || []))),
+   get('/accounts').then(r => setAccounts(Array.isArray(r) ? r : []))
+  ]).then(() => setLoaded(true));
  }, []);
 
  const checkDns = async () => {
@@ -41,6 +45,7 @@ export default function Deliverability(){
 
  const score = reputation?.aggregate?.score ?? null;
  const ring = score === null ? 0 : Math.max(4, Math.min(100, score));
+ if (!loaded) return <DashboardSkeleton variant="overview" />;
  return <>
   <PageHead title="Deliverability" subtitle="Guard your domain reputation — advice only, your mailbox stays yours"
    actions={<button className="btn sm" onClick={runSeed} disabled={busy==='seed'}><Icon name="bolt" size={15}/> {busy==='seed'?'Queuing…':'Run seed test'}</button>}/>

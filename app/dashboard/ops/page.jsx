@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { get, post } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
@@ -20,15 +21,18 @@ export default function Ops(){
  const [pulse,setPulse] = useState(false);
  const [auto,setAuto] = useState(true);
  const [busy,setBusy] = useState('');
+ const [loaded,setLoaded] = useState(false);
  const timer = useRef(null);
 
  const load = () => {
-  get('/observability/slo').then(r => setSlo(r && !Array.isArray(r) ? r : null));
-  get('/observability/metrics').then(r => setMetrics(r && !Array.isArray(r) ? r : {}));
-  get('/outbox/events?limit=25').then(r => setOutbox(arr(r)));
-  get('/scheduler/jobs').then(r => setJobs(arr(r)));
-  get('/reconciliation/status').then(r => setRecon(arr(r)));
-  get('/analytics/overview').then(r => { if(r && !Array.isArray(r)) setLive(r); });
+  Promise.allSettled([
+   get('/observability/slo').then(r => setSlo(r && !Array.isArray(r) ? r : null)),
+   get('/observability/metrics').then(r => setMetrics(r && !Array.isArray(r) ? r : {})),
+   get('/outbox/events?limit=25').then(r => setOutbox(arr(r))),
+   get('/scheduler/jobs').then(r => setJobs(arr(r))),
+   get('/reconciliation/status').then(r => setRecon(arr(r))),
+   get('/analytics/overview').then(r => { if(r && !Array.isArray(r)) setLive(r); })
+  ]).then(() => setLoaded(true));
   setPulse(true); setTimeout(() => setPulse(false), 700);
  };
  useEffect(() => {
@@ -39,6 +43,8 @@ export default function Ops(){
 
  const pending = outbox.filter(e => e.status !== 'published').length;
  const failed = jobs.filter(j => j.status === 'failed').length;
+
+ if (!loaded) return <DashboardSkeleton variant="overview" />;
 
  return <>
   <PageHead title="Operations" subtitle="Live queue health, SLOs, outbox and reconciliation"

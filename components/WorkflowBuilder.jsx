@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { get, post, patch } from '../lib/api';
 import Icon from './Icon';
+import DashboardSkeleton from './DashboardSkeleton';
 import SlideOver from './SlideOver';
 import TemplateBuilder from './TemplateBuilder';
 import { useToast } from './ToastProvider';
@@ -14,6 +15,8 @@ const TRIGGERS = [
   { value:'contact_added', label:'Contact is added to a list', hint:'New contacts added to the selected list start this workflow once.' },
   { value:'form_submitted', label:'Form is submitted', hint:'A valid submission of the selected hosted form starts this workflow once.' },
   { value:'tag_added', label:'Tag is added', hint:'A newly added matching tag starts this workflow once.' },
+  { value:'email_opened', label:'Email is opened', hint:'A contact opening a tracked email starts this workflow once.' },
+  { value:'email_clicked', label:'Email link is clicked', hint:'A contact clicking any tracked link starts this workflow once.' },
   { value:'api', label:'API event', hint:'Call POST /api/v1/sequences/{id}/trigger with a contactId.' },
   { value:'manual', label:'Manual enrollment', hint:'Choose contacts from the automation list to enroll them once.' }
 ];
@@ -44,6 +47,9 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
   const [busy, setBusy] = useState('');
   const [saved, setSaved] = useState(null);
   const [dirty, setDirty] = useState(false);
+  // First-load gates: never flash an empty builder while data is arriving.
+  const [readyResources, setReadyResources] = useState(false);
+  const [readySequence, setReadySequence] = useState(isNew);
 
   useEffect(() => {
     Promise.all([get('/templates'), get('/contacts/lists'), get('/forms'), get('/accounts')]).then(([t, l, f, a]) => {
@@ -51,7 +57,7 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
       setTemplates(Array.isArray(t) ? t : []);
       setLists(Array.isArray(l) ? l : []);
       setForms(Array.isArray(f) ? f : (f?.items || []));
-    });
+    }).finally(() => setReadyResources(true));
   }, []);
 
   useEffect(() => {
@@ -61,10 +67,11 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
       setMeta({ name:s.name || '', description:s.description || '', trigger:s.trigger || 'manual',
         listId:s.listId || '', triggerTag:s.triggerTag || '', formId:s.formId || '', accountId:s.accountId || '', status:s.status || 'draft' });
       setSteps((s.steps || [{ type:'email' }]).map(st => ({ key:uid(), type:st.type, templateId:st.templateId || '',
-        subject:st.subject || '', condition:st.condition || '', accountId:st.accountId || '', ...fromMinutes(st.delayMinutes) })));
+        subject:st.subject || '', condition:st.condition || '', accountId:st.accountId || '',
+        tags:Array.isArray(st.tags) ? st.tags.join(', ') : (st.tags || ''), ...fromMinutes(st.delayMinutes) })));
       setSaved(s);
       get(`/sequences/${id}/enrollments`).then(r=>setEnrollments(Array.isArray(r)?r:[])).catch(e=>notify(toast,e));
-    }).catch(e => notify(toast, e));
+    }).catch(e => notify(toast, e)).finally(() => setReadySequence(true));
   }, [id]);
 
   useEffect(()=>{
@@ -77,6 +84,7 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
     if(meta.status==='active'){toast('Pause the automation before editing steps.','warn');return;}
     const step = type === 'email' ? { key:uid(), type, templateId:'', subject:'' }
       : type === 'delay' ? { key:uid(), type, value:2, unit:'days' }
+      : type === 'tag' ? { key:uid(), type, tags:'' }
       : { key:uid(), type, condition:'If no reply → continue' };
     setSteps(s => [...s, step]); setSelected(steps.length); setDirty(true);
   };
@@ -102,6 +110,7 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
     steps: steps.map(s => s.type === 'email'
       ? { type:'email', templateId:s.templateId || '', accountId:s.accountId || '', ...(s.subject ? { subject:s.subject } : {}) }
       : s.type === 'delay' ? { type:'delay', delayMinutes:toMinutes(s.value, s.unit) }
+      : s.type === 'tag' ? { type:'tag', tags:String(s.tags || '').split(',').map(x=>x.trim()).filter(Boolean).slice(0,10) }
       : { type:'condition', condition:s.condition || 'If no reply → continue' })
   });
 
@@ -145,6 +154,8 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
     waits: steps.filter(s => s.type === 'delay').length,
     total: steps.reduce((n, s) => n + (s.type === 'delay' ? toMinutes(s.value, s.unit) : 0), 0)
   }), [steps]);
+
+  if (!(readyResources && readySequence)) return <DashboardSkeleton variant="overview" />;
 
   return <div className={contained ? 'automation-builder-contained' : 'workflow-builder-full'}>
     <div className="wizard-topbar">
@@ -218,11 +229,12 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
           <button className={`wizard-node ${selected === i ? 'active' : ''}`} onClick={() => setSelected(i)}>
             <span className="node-num">{i + 1}</span>
             <span className={`node-icon ${s.type}`}>{s.type === 'email' ? <Icon name="mail" size={17} />
-              : s.type === 'delay' ? <Icon name="clock" size={17} /> : <Icon name="shield" size={17} />}</span>
+              : s.type === 'delay' ? <Icon name="clock" size={17} />
+              : s.type === 'tag' ? <Icon name="tag" size={17} /> : <Icon name="shield" size={17} />}</span>
             <span className="node-body">
-              <b>{s.type === 'email' ? (s.subject || templates.find(t => t._id === s.templateId)?.name || 'Send an email') : s.type === 'delay' ? `Wait ${human(toMinutes(s.value, s.unit))}` : 'Condition'}</b>
+              <b>{s.type === 'email' ? (s.subject || templates.find(t => t._id === s.templateId)?.name || 'Send an email') : s.type === 'delay' ? `Wait ${human(toMinutes(s.value, s.unit))}` : s.type === 'tag' ? `Add tag: ${s.tags || '…'}` : 'Condition'}</b>
               <span className="muted">{s.type === 'email' ? (templates.find(t => t._id === s.templateId)?.name || 'Pick a template')
-                : s.type === 'delay' ? 'then continue the flow' : (s.condition || 'branch on behaviour')}</span>
+                : s.type === 'delay' ? 'then continue the flow' : s.type === 'tag' ? 'label the contact and continue' : (s.condition || 'branch on behaviour')}</span>
             </span>
             <span className="row" style={{ gap:2 }} onClick={e => e.stopPropagation()}>
               <span className="icon-btn sm" onClick={() => move(s.key, -1)}>↑</span>
@@ -237,6 +249,7 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
           <button onClick={() => add('email')}><Icon name="mail" size={15} /> Email</button>
           <button onClick={() => add('delay')}><Icon name="clock" size={15} /> Wait</button>
           <button onClick={() => add('condition')}><Icon name="shield" size={15} /> Condition</button>
+          <button onClick={() => add('tag')}><Icon name="tag" size={15} /> Tag</button>
         </div>
 
         <div className="wf-goal">
@@ -247,7 +260,7 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
       <aside className="wizard-panel">
         <div className="mini-row"><div className="stat-label">Step {steps.indexOf(active) + 1} of {steps.length}</div>
           <span className="badge">{active?.type || 'trigger'}</span></div>
-        <h2 style={{ marginTop:4 }}>{active?.type === 'email' ? 'Email step' : active?.type === 'delay' ? 'Wait step' : active?.type === 'condition' ? 'Condition' : 'Settings'}</h2>
+        <h2 style={{ marginTop:4 }}>{active?.type === 'email' ? 'Email step' : active?.type === 'delay' ? 'Wait step' : active?.type === 'condition' ? 'Condition' : active?.type === 'tag' ? 'Tag step' : 'Settings'}</h2>
         <div className="divider" />
 
         {active?.type === 'email' && <>
@@ -296,6 +309,16 @@ export default function WorkflowBuilder({ id = 'new', contained = false }) {
             {['If no reply → continue', 'If opened → continue', 'If clicked → continue', 'If replied → stop', 'If not opened → continue'].map(c => <option key={c}>{c}</option>)}
           </select>
           <p className="muted" style={{ marginTop:10 }}>Conditions are checked when this step runs, against tracked opens/clicks and reply events.</p>
+        </>}
+
+        {active?.type === 'tag' && <>
+          <label>Tags to add (comma separated)</label>
+          <input disabled={meta.status==='active'} value={active.tags || ''} onChange={e => update(active.key, { tags:e.target.value })}
+            placeholder="vip, follow-up, priority" />
+          <p className="muted" style={{ marginTop:10 }}>
+            Tags are added to the contact when this step runs — and can themselves start another
+            “Tag added” automation, so workflows can chain.
+          </p>
         </>}
 
         <div className="divider" />

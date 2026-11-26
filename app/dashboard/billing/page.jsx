@@ -7,6 +7,7 @@ import PlanCards from '../../../components/PlanCards';
 import CheckoutPanel from '../../../components/CheckoutPanel';
 import PaymentMethods from '../../../components/PaymentMethods';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 
@@ -134,57 +135,54 @@ export default function Billing() {
 
   const [showAllInvoices, setShowAllInvoices] = useState(false);
   const [intent, setIntent] = useState(null);
+  const [loaded, setLoaded] = useState(false);
 
   /* -----------------------------------------------------
      LOAD BILLING DATA
   ----------------------------------------------------- */
 
   const load = () => {
-    get('/billing/usage')
-      .then(setUsage)
-      .catch(() => {});
+    Promise.allSettled([
+      get('/billing/usage')
+        .then(setUsage),
 
-    get('/billing/alerts')
-      .then(setAlerts)
-      .catch(() => {});
+      get('/billing/alerts')
+        .then(setAlerts),
 
-    get('/billing/crypto/history')
-      .then(response => {
-        setCryptoHistory(
-          Array.isArray(response) ? response : []
-        );
-      })
-      .catch(() => {});
+      get('/billing/crypto/history')
+        .then(response => {
+          setCryptoHistory(
+            Array.isArray(response) ? response : []
+          );
+        }),
 
-    get('/billing/invoices')
-      .then(response => {
-        setInvoices(
-          Array.isArray(response) ? response : []
-        );
-      })
-      .catch(() => {});
+      get('/billing/invoices')
+        .then(response => {
+          setInvoices(
+            Array.isArray(response) ? response : []
+          );
+        }),
 
-    get('/billing/subscription')
-      .then(response => {
-        if (response && !Array.isArray(response)) {
-          setSub(response);
-        }
-      })
-      .catch(() => {});
+      get('/billing/subscription')
+        .then(response => {
+          if (response && !Array.isArray(response)) {
+            setSub(response);
+          }
+        }),
 
-    get('/billing/plans')
-      .then(response => {
-        const map = {};
+      get('/billing/plans')
+        .then(response => {
+          const map = {};
 
-        for (const [code, addon] of Object.entries(
-          response?.addons || {}
-        )) {
-          map[code] = addon.label || code;
-        }
+          for (const [code, addon] of Object.entries(
+            response?.addons || {}
+          )) {
+            map[code] = addon.label || code;
+          }
 
-        setAddonLabels(map);
-      })
-      .catch(() => {});
+          setAddonLabels(map);
+        })
+    ]).then(() => setLoaded(true));
   };
 
   /* -----------------------------------------------------
@@ -311,6 +309,8 @@ export default function Billing() {
   /* -----------------------------------------------------
      RENDER
   ----------------------------------------------------- */
+
+  if (!loaded) return <DashboardSkeleton variant="overview" />;
 
   return (
     <>

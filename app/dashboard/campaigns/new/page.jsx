@@ -15,13 +15,19 @@ const arr = v => Array.isArray(v) ? v : (v?.items || []);
 const stepLabel = s => s.type === 'email' ? 'Send an email' : s.type === 'delay' ? `Wait ${s.days || 2} day(s)` : (s.condition || 'Check a condition');
 const STEPS = ['Overview', 'How it sends', 'Audience', 'Content', 'Review & launch'];
 
-/** Quick pauses a human would actually use, plus a free entry. */
-const TIMEZONE_OPTIONS = [
-  'Asia/Karachi', 'UTC', 'Asia/Dubai', 'Asia/Kolkata',
-  'Europe/London', 'Europe/Berlin', 'America/New_York',
-  'America/Chicago', 'America/Los_Angeles', 'Asia/Singapore',
-  'Australia/Sydney'
-];
+/** Every IANA zone the browser knows, so the wizard works anywhere in the world. */
+const TIMEZONE_OPTIONS = (() => {
+  try {
+    const zones = Intl.supportedValuesOf('timeZone');
+    if (Array.isArray(zones) && zones.length) return zones;
+  } catch { /* older browsers fall back to the curated list below */ }
+  return [
+    'Asia/Karachi', 'UTC', 'Asia/Dubai', 'Asia/Kolkata',
+    'Europe/London', 'Europe/Berlin', 'America/New_York',
+    'America/Chicago', 'America/Los_Angeles', 'Asia/Singapore',
+    'Australia/Sydney'
+  ];
+})();
 
 const WEEKDAYS = [
   { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' },
@@ -29,6 +35,12 @@ const WEEKDAYS = [
   { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
   { value: 7, label: 'Sun' }
 ];
+// <input type="datetime-local"> wants local time as YYYY-MM-DDTHH:mm.
+const datetimeLocalValue = ms => {
+  const d = new Date(ms); d.setSeconds(0, 0);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 const GAP_PRESETS = [
   { label: '30 seconds', value: 30 },
@@ -135,6 +147,7 @@ export default function NewCampaign() {
 
   /* ---------------- pacing maths (plain language) ---------------- */
   const recipients = lists.filter(l => form.listIds.includes(l._id)).reduce((n, l) => n + (l.count || 0), 0);
+  // Human-paced is the default; blast is an explicit choice that drains the list at plan speed.
   const blast = form.sendMode === 'blast';
   const gap = Math.max(5, Number(form.gapSeconds) || 45);
   const perHour = blast ? null : Math.max(1, Math.round(3600 / gap));
@@ -150,27 +163,35 @@ export default function NewCampaign() {
 
   const payload = () => ({
     name: form.name.trim() || 'Untitled campaign', description: form.description.trim(), stream: form.stream,
-    sendMode: form.sendMode, gapSeconds: blast ? undefined : gap,
+    sendMode: form.sendMode, ...(blast ? {} : { gapSeconds: gap }),
     templateId: form.templateId,
     listIds: form.listIds,
     accountPool: form.accountPool,
     rotation: form.rotation,
     sendPolicy: {
-      minDelaySec: blast ? 5 : Math.max(5, Math.round(gap * 0.8)),
-      maxDelaySec: blast ? 10 : Math.max(10, Math.round(gap * 1.2)),
-      jitterPct: blast ? 0 : 20, dailyCap: Number(form.dailyCap) || 50,
-      weeklyCap: (Number(form.dailyCap) || 50) * 5, pauseOnReply: !blast,
+      // Blast: near-zero delay between sends, big caps, no reply-pause — exactly
+      // what the blast card promises (gap fields are omitted entirely: a null
+      // gapSeconds fails validation).
+      minDelaySec: blast ? 10 : Math.max(5, Math.round(gap * 0.8)),
+      maxDelaySec: blast ? 15 : Math.max(10, Math.round(gap * 1.2)),
+      jitterPct: blast ? 0 : 20,
+      dailyCap: blast ? 5000 : Number(form.dailyCap) || 50,
+      weeklyCap: blast ? 35000 : (Number(form.dailyCap) || 50) * 5,
+      pauseOnReply: !blast,
       timezone: form.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      schedule: {
+      // Blast has no window picker — it sends around the clock (Send now works
+      // at any hour); the daily caps are what throttle it. Human keeps the
+      // user-chosen working window.
+      schedule: blast ? { startTime: '00:00', endTime: '24:00', daysOfWeek: [1, 2, 3, 4, 5, 6, 7] } : {
         startTime: form.startTime,
         endTime: form.endTime,
         daysOfWeek: form.daysOfWeek
       },
-      activeHours: {
+      activeHours: blast ? { start: 0, end: 24 } : {
         start: Number(form.startTime.split(':')[0]),
         end: Math.min(24, Number(form.endTime.split(':')[0]) + (form.endTime.endsWith(':00') ? 0 : 1))
       },
-      weekend: form.daysOfWeek.includes(6) || form.daysOfWeek.includes(7)
+      weekend: blast ? true : (form.daysOfWeek.includes(6) || form.daysOfWeek.includes(7))
     },
     sequenceSteps: []
   });
@@ -182,9 +203,15 @@ export default function NewCampaign() {
       toast({ title: 'Choose an active sender pool', level: 'warn', message: 'Select one or more verified mailboxes that support this campaign’s stream.' }); return false;
     }
     if (!payload().templateId) { toast({ title: 'Choose an email', level: 'warn', message: 'Pick a template — or create one on the Content step.' }); return false; }
-    if (!form.daysOfWeek.length || form.startTime >= form.endTime) {
+    if (!blast && (!form.daysOfWeek.length || form.startTime >= form.endTime)) {
       toast({ title: 'Check sending schedule', level: 'warn', message: 'Choose at least one day and make sure the end time is later than the start time.' });
       return false;
+    }
+    if (blast && form.schedule === 'later') {
+      const t = Date.parse(form.startAt || '');
+      if (!form.startAt || !Number.isFinite(t)) { toast({ title: 'Pick a start time', level: 'warn', message: 'Choose when this blast should start.' }); return false; }
+      if (t < Date.now() + 60000) { toast({ title: 'Pick a future time', level: 'warn', message: 'The schedule must be at least a minute ahead.' }); return false; }
+      if (t > Date.now() + 90 * 24 * 3600 * 1000) { toast({ title: 'Too far ahead', level: 'warn', message: 'You can schedule up to 90 days ahead.' }); return false; }
     }
     return true;
   };
@@ -212,7 +239,8 @@ export default function NewCampaign() {
   };
   const confirmLaunch = async () => {
     try {
-      const r = await post(`/campaigns/${created._id}/launch`, { confirm: true });
+      const scheduleFor = blast && form.schedule === 'later' ? new Date(form.startAt).toISOString() : null;
+      const r = await post(`/campaigns/${created._id}/launch`, { confirm: true, ...(scheduleFor ? { startAt: scheduleFor } : {}) });
       toast(r.message || `${r.queued || 0} recipients queued — ${blast ? 'blast' : 'human-paced'} sending`);
       setConfirmOpen(false);
       clearDraft();
@@ -264,7 +292,7 @@ export default function NewCampaign() {
     {step === 0 && <div className="campaign-overview card luxe-card">
       <span className="template-eyebrow">CAMPAIGN WORKSPACE</span><h2>Plan a thoughtful send.</h2>
       <p className="muted">This campaign sends one selected template to contacts in your selected lists. Choose the sending pace, audience and content, then run preflight before launch.</p>
-      <div className="campaign-overview-grid"><div><b>01 · Sending</b><p>Choose blast or human-paced delivery.</p></div><div><b>02 · Audience</b><p>Select lists and connected mailboxes.</p></div><div><b>03 · Content</b><p>Choose or create a reusable email.</p></div><div><b>04 · Review</b><p>Check your settings before confirming.</p></div></div>
+      <div className="campaign-overview-grid"><div><b>01 · Sending</b><p>{blast ? 'Blast delivery — the whole list at plan speed.' : 'Human-paced delivery — one email at a time.'}</p></div><div><b>02 · Audience</b><p>Select lists and connected mailboxes.</p></div><div><b>03 · Content</b><p>Choose or create a reusable email.</p></div><div><b>04 · Review</b><p>Check your settings before confirming.</p></div></div>
       <div className="notice">Multi-step campaign sequences and conditions are not executed by this sender. This wizard launches a single email per recipient.</div>
     </div>}
 
@@ -273,21 +301,21 @@ export default function NewCampaign() {
       <div className="wizard-canvas">
         <div className="canvas-label">How should this campaign send?</div>
         <div className="mode-grid">
-          <button className={`mode-card ${form.sendMode === 'human' ? 'active' : ''}`} onClick={() => setForm({ ...form, sendMode: 'human' })}>
+          <button className={`mode-card ${!blast ? 'active' : ''}`} onClick={() => setForm({ ...form, sendMode: 'human' })}>
             <span className="mode-icon"><Icon name="clock" size={20} /></span>
             <b>Human-paced sending</b>
-            <span className="muted">One email at a time, with a natural pause in between. Adds a pause between emails; inbox placement is not guaranteed.</span>
-            <span className="mode-foot"><Icon name="shield" size={12} /> recommended for outreach</span>
+            <span className="muted">One email at a time, with a natural pause in between — exactly how a person would send. Recommended for outreach and follow-ups.</span>
+            <span className="mode-foot"><Icon name="shield" size={12} /> default · safest for reputation</span>
           </button>
           <button className={`mode-card ${blast ? 'active' : ''}`} onClick={() => setForm({ ...form, sendMode: 'blast' })}>
-            <span className="mode-icon alt"><Icon name="bolt" size={20} /></span>
-            <b>Email blast</b>
-            <span className="muted">Sends the whole list right away, as fast as your connected mailboxes allow. Best for announcements, launches and people who already know you.</span>
-            <span className="mode-foot"><Icon name="mail" size={12} /> fastest delivery</span>
+            <span className="mode-icon"><Icon name="bolt" size={20} /></span>
+            <b>Blast sending</b>
+            <span className="muted">Every contact goes out back-to-back as fast as your mailboxes allow — the whole list can finish in minutes. Daily caps still stop it for the day.</span>
+            <span className="mode-foot"><Icon name="send" size={12} /> fastest · announcements &amp; first-touch</span>
           </button>
         </div>
 
-        <div className="card luxe-card" style={{ padding: 18, marginTop: 16 }}>
+        {!blast && <div className="card luxe-card" style={{ padding: 18, marginTop: 16 }}>
           <h3 style={{ marginTop: 0 }}>When should emails be sent?</h3>
           <p className="muted" style={{ marginTop: -4 }}>
             Your campaign will only send during this time window, regardless of the sending mode.
@@ -324,7 +352,34 @@ export default function NewCampaign() {
             Emails are allowed from <b>{form.startTime}</b> to <b>{form.endTime}</b> ({form.timezone || 'your timezone'}).
             {' '}Selected days: <b>{form.daysOfWeek.length ? WEEKDAYS.filter(day => form.daysOfWeek.includes(day.value)).map(day => day.label).join(', ') : 'none'}</b>.
           </div>
-        </div>
+        </div>}
+
+        {blast && <div className="card luxe-card" style={{ padding: 18, marginTop: 16 }}>
+          <h3 style={{ marginTop: 0 }}>When should this blast send?</h3>
+          <p className="muted" style={{ marginTop: -4 }}>Send now for an immediate blast, or schedule it to start automatically at a chosen time.</p>
+          <div className="row" style={{ gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+            <button type="button" className={`chip ${form.schedule !== 'later' ? 'chip-active' : ''}`}
+              onClick={() => setForm(f => ({ ...f, schedule: 'now' }))}>
+              <Icon name="send" size={13} /> Send now</button>
+            <button type="button" className={`chip ${form.schedule === 'later' ? 'chip-active' : ''}`}
+              onClick={() => setForm(f => ({ ...f, schedule: 'later' }))}>
+              <Icon name="clock" size={13} /> Schedule</button>
+          </div>
+          {form.schedule === 'later' && <div style={{ marginTop: 14 }}>
+            <label>Start at</label>
+            <input type="datetime-local" value={form.startAt || ''}
+              min={datetimeLocalValue(Date.now() + 10 * 60000)}
+              onChange={e => setForm(f => ({ ...f, startAt: e.target.value }))} />
+            <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              Starts automatically at this time (your device timezone). Nothing sends before that.
+            </p>
+          </div>}
+          <div className="notice" style={{ marginTop: 14 }}>
+            {form.schedule === 'later'
+              ? <>Starts <b>{form.startAt ? new Date(form.startAt).toLocaleString() : '—'}</b>. Sending still stops at daily limits and resumes the next day.</>
+              : <>Goes out <b>immediately</b> after confirmation — as fast as your mailboxes allow, stopping at daily limits for the day.</>}
+          </div>
+        </div>}
 
         {!blast && <div className="card luxe-card" style={{ padding: 18, marginTop: 16 }}>
           <h3 style={{ marginTop: 0 }}>How long between two emails?</h3>
@@ -349,7 +404,7 @@ export default function NewCampaign() {
         </div>}
 
         {blast && <div className="notice warn" style={{ marginTop: 16 }}>
-          <b>Blast mode sends faster, not outside your schedule.</b> Emails are processed in batches as fast as your mailboxes allow, but only during the days and hours selected above. Nothing sends until you confirm on the last step.
+          <b>Blast sends as fast as your mailboxes allow — no window picker.</b> Daily caps still stop it for the day and it resumes the next day. Nothing sends until you confirm on the last step.
         </div>}
       </div>
 
@@ -357,8 +412,11 @@ export default function NewCampaign() {
         <h2>What this changes</h2>
         <div className="check-list">
           <div className="check-row"><span className="check-dot ok">✓</span>{blast ? 'All recipients queued at once' : `One email every ~${gap}s`}</div>
-          <div className="check-row"><span className="check-dot ok">?</span>{form.startTime} to {form.endTime} ({form.timezone || 'selected timezone'})</div>
-          <div className="check-row"><span className="check-dot ok">?</span>{WEEKDAYS.filter(day => form.daysOfWeek.includes(day.value)).map(day => day.label).join(', ') || 'No days selected'}</div>
+          {!blast && <div className="check-row"><span className="check-dot ok">?</span>{form.startTime} to {form.endTime} ({form.timezone || 'selected timezone'})</div>}
+          {!blast && <div className="check-row"><span className="check-dot ok">?</span>{WEEKDAYS.filter(day => form.daysOfWeek.includes(day.value)).map(day => day.label).join(', ') || 'No days selected'}</div>}
+          {blast && <div className="check-row"><span className="check-dot ok">✓</span>{form.schedule === 'later'
+            ? `Scheduled — starts ${form.startAt ? new Date(form.startAt).toLocaleString() : '…'}`
+            : 'Send now — starts right after confirmation'}</div>}
           <div className="check-row"><span className="check-dot ok">✓</span>bounces &amp; replies tracked either way</div>
         </div>
         <div className="divider" />
@@ -428,7 +486,11 @@ export default function NewCampaign() {
           </div>
         </div>
 
-        <div className="notice" style={{marginTop:14}}>Launch starts immediately after confirmation. Scheduled launch is not available yet.</div>
+        <div className="notice" style={{marginTop:14}}>
+          {blast && form.schedule === 'later'
+            ? <>After confirmation this campaign <b>arms itself</b> and starts automatically at <b>{form.startAt ? new Date(form.startAt).toLocaleString() : 'the chosen time'}</b>.</>
+            : <>Launch starts immediately after confirmation{blast ? ' — sending stops at daily limits and resumes the next day.' : '.'}</>}
+        </div>
       </div>
       <aside className="wizard-panel">
         <h2>Send a test</h2>
@@ -463,7 +525,7 @@ export default function NewCampaign() {
         <div className={`notice ${recipients ? '' : 'warn'}`} style={{ marginBottom: 14 }}>
           {recipients
             ? blast
-              ? <>This campaign uses <b>blast mode</b>: emails are processed as fast as your mailboxes allow, but only between <b>{form.startTime} and {form.endTime}</b> on your selected days ({form.timezone || 'selected timezone'}). Nothing sends before confirmation.</>
+              ? <>This campaign uses <b>blast mode</b>: emails go out back-to-back as fast as your mailboxes allow, stopping at daily limits. {form.schedule === 'later' ? <>Starts automatically <b>{new Date(form.startAt).toLocaleString()}</b>.</> : <>Nothing sends before confirmation.</>}</>
               : <>One email every <b>{gap}s</b> is about <b>{perHour} emails per hour</b>, capped at <b>{perDay} per day</b>. Sending is limited to {form.startTime}-{form.endTime} on your selected days ({form.timezone || 'selected timezone'}). Nothing sends until you confirm.</>
             : <>Pick at least one list on the Audience step and the finish time appears here.</>}
         </div>
@@ -487,9 +549,9 @@ export default function NewCampaign() {
       </aside>
     </div>}
 
-    {confirmOpen && <Modal title="Confirm launch" onClose={() => setConfirmOpen(false)}
+    {confirmOpen && <Modal title={blast && form.schedule === 'later' ? 'Confirm schedule' : 'Confirm launch'} onClose={() => setConfirmOpen(false)}
       footer={<><button className="btn secondary" onClick={() => setConfirmOpen(false)}>Cancel</button>
-        <button className="btn" onClick={confirmLaunch}>Confirm &amp; queue</button></>}>
+        <button className="btn" onClick={confirmLaunch}>{blast && form.schedule === 'later' ? 'Schedule campaign' : 'Confirm &amp; queue'}</button></>}>
       <div className="confirm-grid">
         <div><div className="stat-label">Recipients</div><b>{launchInfo?.recipients ?? recipients}</b></div>
         <div><div className="stat-label">Sending mode</div><b>{launchInfo?.sendMode === 'blast' ? 'Blast' : 'Human-paced'}</b></div>

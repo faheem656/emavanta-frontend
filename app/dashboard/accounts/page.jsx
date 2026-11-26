@@ -2,10 +2,13 @@
 import { useEffect, useState } from 'react';
 import AccountConnector from '../../../components/AccountConnector';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Icon from '../../../components/Icon';
 export default function Accounts(){
  const [health,setHealth]=useState(null);
- useEffect(()=>{import('../../../lib/api').then(m=>m.get('/deliverability/health').then(setHealth).catch(()=>{}));},[]);
+ const [loaded,setLoaded]=useState(false);
+ useEffect(()=>{import('../../../lib/api').then(m=>m.get('/deliverability/health').then(setHealth).catch(()=>{})).finally(()=>setLoaded(true));},[]);
+ if(!loaded) return <DashboardSkeleton variant="cards" />;
  return <><PageHead title="Mail accounts" subtitle="Your accounts, your reputation — connected through OAuth, SMTP or ESP API"
   actions={<span className="badge ok">{health?.accounts||'—'} active</span>}/>
   <AccountConnector/>

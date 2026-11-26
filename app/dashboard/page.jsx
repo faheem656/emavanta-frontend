@@ -65,7 +65,7 @@ export default function Overview(){
   { label:'Total campaigns', value:campaigns.length, icon:'send', delta:'live', hint:`${campaigns.filter(c=>c.status==='running'||c.status==='launching').length} sending now` },
   { label:'Active contacts', value:(s?.contacts ?? 0), icon:'contacts', delta:'synced', hint:'deduped across lists' },
   { label:'Avg. open rate', value:`${pct(opens, delivered || sent)}%`, icon:'chart', delta:`${opens} opens`, hint:'directional (Apple MPP)' },
-  { label:'Delivered', value:delivered, icon:'check', delta:`${pct(delivered, sent)}%`, hint:`of ${sent} sent` }
+  { label:'Delivered', value:delivered, icon:'check', delta:`${pct(delivered, sent)}%${tracking?.deliveryEstimated?' est.':''}`, hint:`of ${sent} sent${tracking?.deliveryEstimated?' · est. (SMTP reports no receipts)':''}` }
  ];
 
  const typeMix = [
@@ -136,7 +136,10 @@ export default function Overview(){
    <div className="card table-card luxe-card" style={{padding:18}}>
     <div className="mini-row"><h2 style={{margin:0}}>Recent campaigns</h2>
      <Link className="muted" href="/dashboard/campaigns" style={{fontSize:12}}>View all</Link></div>
-    <table><thead><tr><th>Campaign</th><th>Status</th><th>Sent</th><th>Opens</th></tr></thead><tbody>
+    <table className="table-fit"><thead><tr>
+      <th style={{width:'44%'}}>Campaign</th><th style={{width:'22%'}}>Status</th>
+      <th style={{width:'17%'}}>Sent</th><th style={{width:'17%'}}>Opens</th>
+     </tr></thead><tbody>
      {campaigns.slice(0,5).map(c=><tr key={c._id}>
       <td><Link href={`/dashboard/campaigns/${c._id}`} style={{color:'inherit',fontWeight:600}}>{c.name}</Link></td>
       <td><span className={`badge ${c.status==='running'?'ok':c.status==='paused'?'warn':''}`}>{c.status||'draft'}</span></td>

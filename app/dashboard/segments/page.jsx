@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { get, post, patch, del } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Icon from '../../../components/Icon';
 import { useToast } from '../../../components/ToastProvider';
 import { notify } from '../../../lib/notify';
@@ -26,7 +27,8 @@ export default function Segments(){
  const [editing,setEditing] = useState(null);
  const [busy,setBusy] = useState('');
 
- const load = () => get('/segments').then(r => setItems(arr(r))).catch(e => notify(toast, e));
+ const [loaded,setLoaded] = useState(false);
+ const load = () => get('/segments').then(r => setItems(arr(r))).catch(e => notify(toast, e)).finally(() => setLoaded(true));
  useEffect(() => { load(); }, []);
  useEffect(() => {
   const t = setTimeout(() => {
@@ -51,6 +53,7 @@ export default function Segments(){
   try { await del(`/segments/${s._id}`); toast('Segment deleted'); load(); } catch(e){ notify(toast, e); }
  };
 
+ if (!loaded) return <DashboardSkeleton variant="table" rows={5} columns={4} />;
  return <>
   <PageHead title="Segments" subtitle="Saved conditions that always reflect your live contact data"
    actions={<button className="btn sm" onClick={save} disabled={busy==='save'}>{busy==='save'?'Saving…':editing?'Update segment':'Save segment'}</button>}/>

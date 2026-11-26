@@ -2,10 +2,16 @@
 import { useEffect, useState } from 'react';
 import { get } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import { Bars, Donut, Sparkline } from '../../../components/Charts';
 export default function Analytics(){
  const [s,setS]=useState(null),[byAccount,setByAccount]=useState({});
- useEffect(()=>{get('/analytics/overview').then(setS).catch(()=>{});get('/analytics/by-account').then(setByAccount).catch(()=>{});},[]);
+ const [loaded,setLoaded]=useState(false);
+ useEffect(()=>{Promise.allSettled([
+  get('/analytics/overview').then(setS),
+  get('/analytics/by-account').then(setByAccount)
+ ]).then(()=>setLoaded(true));},[]);
+ if(!loaded) return <DashboardSkeleton variant="overview" />;
  return <>
   <PageHead title="Analytics" subtitle="One metric dictionary. Opens are secondary, not proof."/>
   <div className="grid" style={{gridTemplateColumns:'1.4fr 1fr'}}>

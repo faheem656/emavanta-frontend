@@ -36,8 +36,7 @@ const NAV = [
   ] },
   { key: 'deliverability', label: 'Deliverability', icon: 'shield', items: [
     ['/dashboard/accounts', 'Mail accounts', 'bolt'],
-    ['/dashboard/deliverability', 'Deliverability', 'shield'],
-    ['/dashboard/send-policy', 'Send policy', 'clock']
+    ['/dashboard/deliverability', 'Deliverability', 'shield']
   ] },
   { key: 'insights', label: 'Insights', icon: 'chart', items: [
     ['/dashboard/analytics', 'Analytics', 'chart'],

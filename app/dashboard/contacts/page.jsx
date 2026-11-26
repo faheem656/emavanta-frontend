@@ -272,10 +272,15 @@ No duplicates.</h3><p>Already in your workspace? We’ll reuse the contact and a
        <td><div className="row" style={{gap:4}}>{(c.listIds||[]).length
         ? (c.listIds||[]).map(x=><span className="badge" key={x}>{listName(x)}</span>)
         : <span className="muted">uncategorised</span>}</div></td>
-       <td><span className="badge ok">active</span></td>
+       <td><span className={`badge ${c.status === 'bounced' ? 'danger' : c.status === 'unsubscribed' ? 'warn' : 'ok'}`}>
+         {c.status || 'subscribed'}</span>
+        <div className="muted" style={{fontSize:11}}>{c.consentSource ? `consent · ${c.consentSource}` : 'consent · not recorded'}</div></td>
        <td><button className="btn ghost sm" onClick={()=>openEditor(c)}><Icon name="contacts" size={14}/> Lists</button> <button className="btn ghost sm" disabled={actionBusy} onClick={()=>doBulk('delete',[c._id])} aria-label={`Delete ${c.email}`}>Delete</button></td>
       </tr>)}
-      {!visible.length&&<tr><td colSpan={6}><div className="empty">{contactsLoading?'Loading contacts…':'No contacts here yet.'}</div></td></tr>}
+      {contactsLoading && !visible.length && [0,1,2,3,4].map(r=><tr key={`sk${r}`} aria-hidden="true">
+       {[0,1,2,3,4,5].map(cell=><td key={cell}><span className="skeleton-block" style={{display:'block',width:`${46+((r+cell)%3)*16}%`,height:9}}/></td>)}
+      </tr>)}
+      {!contactsLoading && !visible.length&&<tr><td colSpan={6}><div className="empty">No contacts here yet.</div></td></tr>}
      </tbody></table>
      <div className="contacts-page-nav"><span>{total ? `${page*100+1}–${Math.min((page+1)*100,total)} of ${total}` : '0 contacts'}</span><button className="btn ghost sm" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Previous</button><button className="btn ghost sm" disabled={(page+1)*100>=total} onClick={()=>setPage(p=>p+1)}>Next</button></div>
     </div>

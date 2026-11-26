@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { get, post, patch, del } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import DashboardSkeleton from '../../../components/DashboardSkeleton';
 import Modal from '../../../components/Modal';
 import QrCode from '../../../components/QrCode';
 import Icon from '../../../components/Icon';
@@ -25,10 +26,13 @@ export default function Settings(){
  const [countdown,setCountdown] = useState(30);
  const [recovery,setRecovery] = useState([]);
 
+ const [loaded,setLoaded] = useState(false);
  const load = () => {
-  get('/security/mfa/status').then(r => { if(r && !Array.isArray(r)) setStatus(r); });
-  get('/organizations/current').then(r => { if(r && !Array.isArray(r)){ setOrg(r.organization); setOrgName(r.organization?.name || ''); } });
-  get('/organizations/current/deletion').then(r => { if(r && !Array.isArray(r)) setDeletion(r); });
+  Promise.allSettled([
+   get('/security/mfa/status').then(r => { if(r && !Array.isArray(r)) setStatus(r); }),
+   get('/organizations/current').then(r => { if(r && !Array.isArray(r)){ setOrg(r.organization); setOrgName(r.organization?.name || ''); } }),
+   get('/organizations/current/deletion').then(r => { if(r && !Array.isArray(r)) setDeletion(r); })
+  ]).then(()=>setLoaded(true));
  };
  useEffect(() => { load(); }, []);
  useEffect(() => {
@@ -80,6 +84,7 @@ export default function Settings(){
  };
 
  const pending = deletion?.status === 'pending_deletion';
+ if (!loaded) return <DashboardSkeleton variant="cards" />;
  return <>
   <PageHead title="Settings" subtitle="Authenticator, workspace controls and data ownership"/>
 

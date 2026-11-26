@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getStrict, post } from '../../../lib/api';
+import { getStrict, post, del } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
+import Modal from '../../../components/Modal';
 import DashboardSkeleton from '../../../components/DashboardSkeleton';
 
 const localNow = () => { const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16); };
@@ -11,6 +12,20 @@ const termEnd = (raw, interval) => { const d=new Date(raw); if (!Number.isFinite
 export default function Admin() {
  const [access,setAccess]=useState(null), [error,setError]=useState(''), [spaces,setSpaces]=useState([]), [users,setUsers]=useState([]), [plans,setPlans]=useState([]), [busy,setBusy]=useState(''), [setup,setSetup]=useState(null), [redisCheck,setRedisCheck]=useState(null), [payments,setPayments]=useState([]), [cardPayments,setCardPayments]=useState([]), [cryptoLocks,setCryptoLocks]=useState([]), [userPage,setUserPage]=useState(0), [pendingCount,setPendingCount]=useState(0),[contactMessages,setContactMessages]=useState([]),[editingPlan,setEditingPlan]=useState(null),[selectedPlan,setSelectedPlan]=useState(''),[planReason,setPlanReason]=useState(''),[planInterval,setPlanInterval]=useState('month'),[planStart,setPlanStart]=useState(''),[planSnapshot,setPlanSnapshot]=useState(null);
  const [loading,setLoading]=useState(true), [activeTab,setActiveTab]=useState('overview');
+ // Dialog replaces window.prompt/confirm (blocked in embedded/preview frames)
+ // and flash replaces alert() the same way.
+ const [dialog,setDialog]=useState(null), [dialogReason,setDialogReason]=useState(''), [flash,setFlash]=useState('');
+ const openDialog=config=>{ setDialogReason(''); setDialog(config); };
+ const runDialog=async()=>{
+  if(!dialog)return;
+  const reason=dialogReason.trim();
+  if(dialog.reasonMin && reason.length<dialog.reasonMin)return;
+  setBusy('dialog');setError('');
+  try{ await dialog.run(reason); setDialog(null); setDialogReason(''); }
+  catch(e){ setError(e.message); }
+  finally{ setBusy(''); }
+ };
+ useEffect(()=>{ if(!flash)return; const t=setTimeout(()=>setFlash(''),6000); return ()=>clearTimeout(t); },[flash]);
  async function load(page=userPage) {
   setError('');
   try {
@@ -22,52 +37,104 @@ export default function Admin() {
   finally { setLoading(false); }
  }
  useEffect(()=>{void load(userPage); const timer=setInterval(()=>void load(userPage),30000); return ()=>clearInterval(timer);},[userPage]);
- async function setUserStatus(u,status){
-  const reason=window.prompt(`Reason to set ${u.email} to ${status} (10–500 characters):`);
-  if(!reason)return;
-  if(!window.confirm(`${status==='deleted'?'Soft-delete':status==='suspended'?'Suspend':'Restore'} ${u.email}? Sessions and API keys will be revoked. Workspace and billing records are retained.`))return;
-  setBusy(u.id);setError('');
-  try{await post(`/admin/users/${encodeURIComponent(u.id)}/status`,{status,reason});await load();}catch(e){setError(e.message);}finally{setBusy('');}
+ function setUserStatus(u,status){
+  openDialog({
+   title: status==='active'?`Restore ${u.email}`:status==='deleted'?`Soft-delete ${u.email}`:`Suspend ${u.email}`,
+   message: `${status==='deleted'?'Soft-delete':status==='suspended'?'Suspend':'Restore'} ${u.email}? Sessions and API keys will be revoked. Workspace and billing records are retained.`,
+   reasonLabel: `Reason to set ${u.email} to ${status} (10–500 characters)`,
+   reasonMin: 10,
+   confirmLabel: status==='active'?'Restore user':status==='deleted'?'Soft delete':'Suspend user',
+   run: async reason => {
+    await post(`/admin/users/${encodeURIComponent(u.id)}/status`,{status,reason});
+    setFlash(`User ${status==='active'?'restored':status==='deleted'?'soft-deleted':'suspended'}.`);
+    await load();
+   }
+  });
  }
- async function reviewPayment(p) {
-  if (!window.confirm(`Verify on-chain and activate ${p.kind==='addon'?`${p.code} × ${p.quantity}`:p.plan} for workspace ${p.organizationId}? Review the transaction and amount first.`)) return;
-  setBusy(p.txHash); setError('');
-  try {const result=await post(`/admin/crypto/payments/${p.txHash}/approve`,{});alert(result.alreadyApproved?'Already approved.':`Approved. Term ends ${result.expiresAt}.`);await load();}
-  catch(e){setError(e.message);} finally{setBusy('');}
+ function reviewPayment(p) {
+  openDialog({
+   title:'Verify & approve payment',
+   message:`Verify on-chain and activate ${p.kind==='addon'?`${p.code} × ${p.quantity}`:p.plan} for workspace ${p.organizationId}? Review the transaction and amount first.`,
+   confirmLabel:'Verify & approve',
+   run: async () => {
+    const result=await post(`/admin/crypto/payments/${p.txHash}/approve`,{});
+    setFlash(result.alreadyApproved?'Already approved.':`Approved. Term ends ${result.expiresAt}.`);
+    await load();
+   }
+  });
  }
- async function rejectPayment(p){
-  const reason=window.prompt('Reason for rejecting this review (10–500 characters):');if(!reason)return;
-  if(!window.confirm('Reject review? This does not refund or reverse the blockchain transfer. The payment lock stays in place for manual reconciliation.'))return;
-  setBusy(p.txHash);try{const r=await post(`/admin/crypto/payments/${p.txHash}/reject`,{reason});alert(r.message);await load();}catch(e){setError(e.message);}finally{setBusy('');}
+ function rejectPayment(p){
+  openDialog({
+   title:`Reject review · ${p.txHash.slice(0,12)}…`,
+   message:'Reject review? This does not refund or reverse the blockchain transfer. The payment lock stays in place for manual reconciliation.',
+   reasonLabel:'Reason for rejecting this review (10–500 characters)',
+   reasonMin:10, confirmLabel:'Reject review',
+   run: async reason => {
+    const r=await post(`/admin/crypto/payments/${p.txHash}/reject`,{reason});
+    setFlash(r.message); await load();
+   }
+  });
  }
- async function resolveLock(l){
-  const reason=window.prompt('Explain your investigation and why no transfer was made (at least 20 characters):');if(!reason)return;
-  if(!window.confirm('You must independently check the wallet, pending transactions and blockchain. Closing this lock cannot stop or refund a transfer and may permit another payment. Have you confirmed no transfer was made?'))return;
-  setBusy(l.orderId);try{const r=await post(`/admin/crypto/locks/${encodeURIComponent(l.orderId)}/resolve`,{organizationId:l.organizationId,reason,confirmedNoTransfer:true});alert(r.message);await load();}catch(e){setError(e.message);}finally{setBusy('');}
+ function resolveLock(l){
+  openDialog({
+   title:`Investigate & close · ${l.orderId}`,
+   message:'You must independently check the wallet, pending transactions and blockchain. Closing this lock cannot stop or refund a transfer and may permit another payment. Have you confirmed no transfer was made?',
+   reasonLabel:'Explain your investigation and why no transfer was made (at least 20 characters)',
+   reasonMin:20, confirmLabel:'Close lock',
+   run: async reason => {
+    const r=await post(`/admin/crypto/locks/${encodeURIComponent(l.orderId)}/resolve`,{organizationId:l.organizationId,reason,confirmedNoTransfer:true});
+    setFlash(r.message); await load();
+   }
+  });
  }
- async function settleRejected(l){
-  const reason=window.prompt('Describe how the rejected transfer and any refund obligations were reconciled outside this platform (at least 20 characters):');if(!reason)return;
-  if(!window.confirm('Only close this lock after independently reconciling funds and refund obligations. This action does not issue a refund or reverse a transfer, and permits new payments. Continue?'))return;
-  setBusy(l.orderId);try{const r=await post(`/admin/crypto/locks/${encodeURIComponent(l.orderId)}/resolve-rejected`,{organizationId:l.organizationId,reason,confirmedReconciled:true});alert(r.message);await load();}catch(e){setError(e.message);}finally{setBusy('');}
+ function settleRejected(l){
+  openDialog({
+   title:`Reconcile rejected payment · ${l.orderId}`,
+   message:'Only close this lock after independently reconciling funds and refund obligations. This action does not issue a refund or reverse a transfer, and permits new payments. Continue?',
+   reasonLabel:'Describe how the rejected transfer and any refund obligations were reconciled outside this platform (at least 20 characters)',
+   reasonMin:20, confirmLabel:'Close lock',
+   run: async reason => {
+    const r=await post(`/admin/crypto/locks/${encodeURIComponent(l.orderId)}/resolve-rejected`,{organizationId:l.organizationId,reason,confirmedReconciled:true});
+    setFlash(r.message); await load();
+   }
+  });
  }
  async function checkRedis(){setBusy('redis-check');setError('');try{setRedisCheck(await post('/admin/upstash/check',{}));}catch(e){setError(e.message);}finally{setBusy('');}}
- async function retryContact(m){setBusy(m.id);setError('');try{const r=await post(`/admin/contact-messages/${encodeURIComponent(m.id)}/retry`,{});alert(r.message);await load();}catch(e){setError(e.message);}finally{setBusy('');}}
- async function retryAlert(p) {setBusy(p.txHash);try{const r=await post(`/admin/crypto/payments/${p.txHash}/notify`,{});alert(`Email status: ${r.status}`);await load();}catch(e){setError(e.message);}finally{setBusy('');}}
- async function checkCard(p){setBusy(p._id);try{const r=await post(`/admin/stripe/payments/${p._id}/check`,{});alert(r.message||`Payment status: ${r.status}`);await load();}catch(e){setError(e.message);}finally{setBusy('');}}
+ async function retryContact(m){setBusy(m.id);setError('');try{const r=await post(`/admin/contact-messages/${encodeURIComponent(m.id)}/retry`,{});setFlash(r.message);await load();}catch(e){setError(e.message);}finally{setBusy('');}}
+ function deleteContact(m){
+  openDialog({
+   title:'Delete contact message',
+   message:`Delete the message from ${m.name} · ${m.topic}? It will be removed from this list permanently.`,
+   confirmLabel:'Delete message',
+   run: async () => {
+    const r=await del(`/admin/contact-messages/${encodeURIComponent(m.id)}`);
+    setFlash(r.message||'Contact message deleted.'); await load();
+   }
+  });
+ }
+ async function retryAlert(p) {setBusy(p.txHash);try{const r=await post(`/admin/crypto/payments/${p.txHash}/notify`,{});setFlash(`Email status: ${r.status}`);await load();}catch(e){setError(e.message);}finally{setBusy('');}}
+ async function checkCard(p){setBusy(p._id);try{const r=await post(`/admin/stripe/payments/${p._id}/check`,{});setFlash(r.message||`Payment status: ${r.status}`);await load();}catch(e){setError(e.message);}finally{setBusy('');}}
  async function changePlan(w) {
   const plan=selectedPlan, reason=planReason.trim(), expected=planSnapshot || w;
   if (!plans.some(p=>p.code===plan)||reason.length<10||reason.length>500) {setError('Select a plan and enter a reason of 10–500 characters.');return;}
   const parsed=plan==='free' ? null : new Date(planStart);
   if(plan!=='free' && (!parsed || !Number.isFinite(parsed.getTime()) || parsed.getTime()>Date.now()+60000 || termEnd(planStart,planInterval)<=new Date())) {setError('Choose a start time in the past or present and an active term.');return;}
-  if (!window.confirm(`Assign ${plan} to ${w.name}${parsed ? ` for a ${planInterval==='year'?'yearly':'monthly'} term ending ${termEnd(planStart,planInterval).toLocaleString()}` : ' without an expiry'}? This records no payment and does not auto-renew. Pending payments may require review.`)) return;
-  setBusy(w.id);setError('');
-  try { const r=await post(`/admin/workspaces/${encodeURIComponent(w.id)}/plan`,{plan,reason,expectedPlan:expected.plan,expectedSource:expected.planSource,expectedExpiry:expected.planExpiresAt,expectedStart:expected.planStartedAt,...(parsed?{interval:planInterval,startedAt:parsed.toISOString()}:{})}); alert(r.message);setEditingPlan(null);setPlanReason('');await load(); }
-  catch(e){setError(e.message);} finally {setBusy('');}
+  openDialog({
+   title:`Assign plan · ${w.name}`,
+   message:`Assign ${plan} to ${w.name}${parsed ? ` for a ${planInterval==='year'?'yearly':'monthly'} term ending ${termEnd(planStart,planInterval).toLocaleString()}` : ' without an expiry'}? This records no payment and does not auto-renew. Pending payments may require review.`,
+   confirmLabel:'Assign plan',
+   run: async () => {
+    const r=await post(`/admin/workspaces/${encodeURIComponent(w.id)}/plan`,{plan,reason,expectedPlan:expected.plan,expectedSource:expected.planSource,expectedExpiry:expected.planExpiresAt,expectedStart:expected.planStartedAt,...(parsed?{interval:planInterval,startedAt:parsed.toISOString()}:{})});
+    setFlash(r.message); setEditingPlan(null); setPlanReason('');
+    await load();
+   }
+  });
  }
 
  return <>
   <PageHead title="Platform administration" subtitle="Owner-only workspace and account oversight" actions={<button className="btn secondary sm" onClick={()=>load()}>Refresh</button>}/>
   {error && <div className="notice warn" role="alert">{error}</div>}
+  {flash && <div className="notice" role="status" style={{background:'#e6f7ef',borderColor:'#a7e8c5',color:'#0b6b45'}}>{flash}</div>}
   {access && !access.owner && <div className="notice warn">Only the configured platform owner can access this page.</div>}
   {access?.owner && !access.ready && <div className="notice warn">Enable two-factor authentication in <Link href="/dashboard/security">Security</Link>, then sign out and sign back in using your authenticator to unlock this page.</div>}
   {loading && <DashboardSkeleton variant="admin" showHeader={false} />}
@@ -103,7 +170,7 @@ export default function Admin() {
    </div>}
    {activeTab==='support'&&<div className="admin-tab-content">
    <div className="card luxe-card" style={{marginTop:16,overflowX:'auto'}}><h2>Contact messages</h2><p className="muted">Recent contact form submissions. Notification delivery may be retried; SMTP acceptance does not guarantee inbox delivery.</p>
-    {!contactMessages.length?<p>No contact messages yet.</p>:contactMessages.map(m=><details className="block" key={m.id}><summary><b>{m.name} · {m.topic}</b> <span> · {m.deliveryStatus}</span></summary><p><a href={`mailto:${encodeURIComponent(m.email)}`}>{m.email}</a>{m.company?` · ${m.company}`:''}</p><p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{m.message}</p><small>{m.createdAt?.slice(0,10)} · Ref {m.id.slice(0,8)}</small>{m.deliveryStatus==='failed'&&<p><button className="btn secondary sm" disabled={!!busy} onClick={()=>retryContact(m)}>Retry notification</button></p>}</details>)}
+    {!contactMessages.length?<p>No contact messages yet.</p>:contactMessages.map(m=><details className="block" key={m.id}><summary><b>{m.name} · {m.topic}</b> <span> · {m.deliveryStatus}</span> <button className="btn sm" aria-label="Delete message" title="Delete message" onClick={e=>{e.preventDefault();e.stopPropagation();deleteContact(m);}} style={{marginLeft:'auto',fontSize:11,padding:'2px 8px',color:'#dc2626'}}>Delete</button></summary><p><a href={`mailto:${encodeURIComponent(m.email)}`}>{m.email}</a>{m.company?` · ${m.company}`:''}</p><p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{m.message}</p><small>{m.createdAt?.slice(0,10)} · Ref {m.id.slice(0,8)}</small><span style={{display:'inline-flex',gap:8,marginLeft:12}}>{m.deliveryStatus==='failed'&&<button className="btn secondary sm" disabled={!!busy} onClick={()=>retryContact(m)}>Retry notification</button>}<button className="btn sm" disabled={!!busy} onClick={()=>deleteContact(m)} style={{color:'#dc2626'}}>Delete message</button></span></details>)}
    </div>
    </div>}
    {activeTab==='workspaces'&&<div className="admin-tab-content">
@@ -115,5 +182,21 @@ export default function Admin() {
    <div className="card luxe-card" style={{marginTop:16,overflowX:'auto'}}><h2>Users</h2><p className="muted">Page {userPage+1}. Deletion is reversible: the account is disabled, but workspace, billing and audit records are retained. Restoring requires a new login and new API keys.</p><table><thead><tr><th>Name</th><th>Email</th><th>Verified</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>{users.map(u=><tr key={u.id}><td>{u.name}</td><td>{u.email}</td><td>{u.emailVerified?'Yes':'No'}</td><td>{u.status}</td><td>{u.createdAt?.slice(0,10)}</td><td>{u.status!=='active'&&<button className="btn secondary sm" disabled={!!busy} onClick={()=>setUserStatus(u,'active')}>Activate</button>} {u.status==='active'&&<button className="btn secondary sm" disabled={!!busy} onClick={()=>setUserStatus(u,'suspended')}>Suspend</button>} {u.status!=='deleted'&&<button className="btn ghost sm" disabled={!!busy} onClick={()=>setUserStatus(u,'deleted')}>Soft delete</button>}</td></tr>)}</tbody></table><p><button className="btn secondary sm" disabled={userPage===0} onClick={()=>setUserPage(p=>p-1)}>Previous</button>{' '}<button className="btn secondary sm" disabled={users.length<50} onClick={()=>setUserPage(p=>p+1)}>Next</button></p></div>
    </div>}
   </>}
+
+  {dialog && <Modal title={dialog.title} onClose={()=>{setDialog(null);setDialogReason('');}}
+   footer={<>
+    <button className="btn" disabled={!!busy} onClick={()=>{setDialog(null);setDialogReason('');}}>Cancel</button>
+    <button className="btn btn-primary" disabled={!!busy||(dialog.reasonMin && dialogReason.trim().length<dialog.reasonMin)} onClick={runDialog}>{busy==='dialog'?'Working…':dialog.confirmLabel}</button>
+   </>}>
+   <div style={{fontSize:13,lineHeight:1.6}}>{dialog.message}</div>
+   {dialog.reasonLabel && <div style={{marginTop:12}}>
+    <div style={{fontSize:12,fontWeight:600,marginBottom:6}}>{dialog.reasonLabel}</div>
+    <textarea value={dialogReason} onChange={e=>setDialogReason(e.target.value)} rows={3} maxLength={500}
+     style={{width:'100%',fontSize:13,padding:'8px 10px',border:'1px solid var(--border)',borderRadius:6,background:'var(--surface)',color:'var(--text)',resize:'vertical',fontFamily:'inherit'}}/>
+    <div style={{fontSize:11,marginTop:4,color: dialog.reasonMin && dialogReason.trim().length<dialog.reasonMin ? '#dc2626' : 'var(--ink-3)'}}>
+     {dialogReason.trim().length} / {dialog.reasonMin} minimum
+    </div>
+   </div>}
+  </Modal>}
  </>;
 }

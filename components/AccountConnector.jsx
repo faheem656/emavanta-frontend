@@ -22,6 +22,9 @@ export default function AccountConnector() {
   const [esp, setEsp] = useState({ provider:'sendgrid', apiKey:'', domain:'' });
   const [busy, setBusy] = useState('');
   const [testing, setTesting] = useState('');
+  const [reconId, setReconId] = useState('');
+  const [reconPass, setReconPass] = useState('');
+  const [reconBusy, setReconBusy] = useState(false);
 
   const load = () => get('/accounts').then(r => setAccounts(Array.isArray(r) ? r : []));
   useEffect(() => { load(); }, []);
@@ -64,6 +67,17 @@ export default function AccountConnector() {
   const disconnect = async a => {
     if (!window.confirm(`Disconnect ${a.fromEmail}? Campaigns using it will pause.`)) return;
     try { await del(`/accounts/${a._id}`); toast('Account disconnected'); load(); } catch (e) { notify(toast, e); }
+  };
+
+  // Auth failures (535) put the mailbox in "reauth required": paste the new
+  // password, we verify it against the server live, then sending resumes by itself.
+  const reconnect = async () => {
+    setReconBusy(true);
+    try {
+      const r = await post(`/accounts/${reconId}/reconnect`, { pass: reconPass });
+      toast(r?.message || 'Mailbox reconnected — sending resumes automatically');
+      setReconId(''); setReconPass(''); load();
+    } catch (e) { notify(toast, e); } finally { setReconBusy(false); }
   };
 
   const active = accounts.filter(a => a.status === 'active').length;
@@ -133,20 +147,30 @@ export default function AccountConnector() {
 
     <div className="card table-card" style={{ marginTop:16, padding:18 }}>
       <div className="mini-row"><h2 style={{ margin:0 }}>Connected accounts</h2><span className="badge">{accounts.length}</span></div>
-      <table><thead><tr><th>From</th><th>Method</th><th>Status</th><th>Sent today / cap</th><th></th></tr></thead><tbody>
+      <table><thead><tr><th>From</th><th>Method</th><th>Status</th><th></th></tr></thead><tbody>
         {accounts.map(a => <tr key={a._id}>
           <td><div><b style={{ fontSize:13 }}>{a.fromEmail}</b><div className="muted" style={{ fontSize:11 }}>{a.fromName || a.smtpHost || '—'}</div></div></td>
           <td>{METHOD_LABEL[a.authMethod] || a.authMethod}</td>
-          <td><span className={`badge ${a.status === 'active' ? 'ok' : a.status === 'error' ? 'danger' : 'warn'}`}>{a.status.replace(/_/g, ' ')}</span>
-            {a.lastError && <div className="muted" style={{ fontSize:11, maxWidth:220 }}>{a.lastError}</div>}</td>
-          <td>{a.sentToday || 0} / {a.dailyCap}</td>
-          <td className="row" style={{ gap:6 }}>
-            <button className="btn secondary sm" onClick={() => test(a)} disabled={testing === a._id}>
-              {testing === a._id ? 'Sending…' : 'Send test'}</button>
-            <button className="btn ghost sm" onClick={() => disconnect(a)}>Disconnect</button>
+          <td><span className={`badge ${a.status === 'active' ? 'ok' : ['error','reauth_required','revoked'].includes(a.status) ? 'danger' : 'warn'}`}>{a.status.replace(/_/g, ' ')}</span>
+            {a.lastError && <div className="muted" style={{ fontSize:11, maxWidth:260 }}>{a.lastError}</div>}
+            {a.status === 'limited' && a.limitedUntil && Date.parse(a.limitedUntil) > Date.now() &&
+              <div className="muted" style={{ fontSize:11 }}>resumes automatically at {new Date(a.limitedUntil).toLocaleTimeString()}</div>}</td>
+          <td className="row" style={{ gap:6, flexWrap:'wrap' }}>
+            {a.status === 'reauth_required' && a.authMethod === 'smtp' && reconId === a._id ? <>
+              <input type="password" autoComplete="new-password" placeholder="New password / app password"
+                value={reconPass} onChange={e => setReconPass(e.target.value)} style={{ width:170, fontSize:12 }} />
+              <button className="btn sm" disabled={!reconPass || reconBusy} onClick={reconnect}>
+                {reconBusy ? 'Verifying…' : 'Save & verify'}</button>
+            </> : <>
+              <button className="btn secondary sm" onClick={() => test(a)} disabled={testing === a._id}>
+                {testing === a._id ? 'Sending…' : 'Send test'}</button>
+              {a.status === 'reauth_required' && a.authMethod === 'smtp' &&
+                <button className="btn sm" onClick={() => { setReconId(a._id); setReconPass(''); }}>Reconnect</button>}
+              <button className="btn ghost sm" onClick={() => disconnect(a)}>Disconnect</button>
+            </>}
           </td>
         </tr>)}
-        {!accounts.length && <tr><td colSpan={5} className="empty">No accounts connected yet</td></tr>}
+        {!accounts.length && <tr><td colSpan={4} className="empty">No accounts connected yet</td></tr>}
       </tbody></table>
     </div>
   </>;
