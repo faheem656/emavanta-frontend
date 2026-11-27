@@ -342,14 +342,26 @@ export default function CampaignDetail(){
    <div className="mini-row"><h2 style={{margin:0}}>Sending from</h2><span className="badge ok">applies to the next email</span></div>
    <p className="muted" style={{fontSize:12,marginTop:4}}>Swap the sender mailboxes of this running campaign — no pause or relaunch needed. Unsubscribed and bounced contacts are never sent, whatever the pool.</p>
    <div className="row" style={{gap:8,flexWrap:'wrap',marginTop:10}}>
-    {senderAccounts.filter(a=>a.status==='active').map(a=>(
-     <label key={a._id} className={`chip ${senderSel.includes(a._id)?'chip-active':''}`} style={{cursor:'pointer'}}>
-      <input type="checkbox" style={{marginRight:6}} checked={senderSel.includes(a._id)}
-       onChange={()=>setSenderSel(s=>s.includes(a._id)?s.filter(x=>x!==a._id):[...s,a._id])}/>
-      {a.fromEmail}
-     </label>))}
-    {!senderAccounts.filter(a=>a.status==='active').length && <span className="muted">No active mailboxes — fix one on Mail accounts.</span>}
+    {senderAccounts.length ? senderAccounts.map(a=>{
+     const blocked = a.status!=='active' && a.status!=='limited';
+     const inPool = senderSel.includes(a._id);
+     // Broken pool members stay visible and removable (they were hidden before,
+     // so a stale bad mailbox could never be deselected and every save failed).
+     const selectable = !blocked || inPool;
+     const title = a.status==='limited' ? `Cooling down — resumes automatically${a.limitedUntil?` after ${new Date(a.limitedUntil).toLocaleTimeString()}`:''}`
+      : blocked ? `${a.status}${a.lastError?` — ${a.lastError}`:''}` : '';
+     return (
+      <label key={a._id} className={`chip ${inPool?'chip-active':''}`} title={title}
+       style={{cursor:selectable?'pointer':'not-allowed',opacity:selectable?1:.55}}>
+       <input type="checkbox" style={{marginRight:6}} checked={inPool} disabled={!selectable}
+        onChange={()=>setSenderSel(s=>s.includes(a._id)?s.filter(x=>x!==a._id):[...s,a._id])}/>
+       {a.fromEmail}
+       {a.status==='limited' && <span className="badge" style={{marginLeft:6}}>cooling down</span>}
+       {blocked && <span className="badge badge-amber" style={{marginLeft:6}}>{a.status.replace(/_/g,' ')}</span>}
+      </label>);
+    }) : <span className="muted">No mailboxes yet — add one on Mail accounts.</span>}
    </div>
+   {senderAccounts.some(a=>a.status!=='active'&&a.status!=='limited') && <div className="muted" style={{fontSize:11,marginTop:6}}>Greyed mailboxes need attention on Mail accounts — they can’t be added until fixed (existing pool members can still be removed here).</div>}
    <div className="row" style={{marginTop:12,gap:10,alignItems:'center'}}>
     <button className="btn sm" disabled={sendersBusy || !senderSel.length} onClick={saveSenders}>
      {sendersBusy?'Saving…':'Save senders'}</button>

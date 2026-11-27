@@ -41,7 +41,15 @@ export default function SessionGate({ children, mode }) {
  useEffect(()=>{
   void check();
   const changed=e=>{if(!e.key||e.key==='emavanta_token')void check();};
-  const focus=()=>{if(document.visibilityState==='visible')void check();};
+  const focus=()=>{
+   if(document.visibilityState!=='visible')return;
+   // Tab switches used to fire /auth/me on every focus (plus retries) — throttle
+   // so rapid tab-switching never stacks session requests.
+   const now=Date.now();
+   if(now-(focus.last||0)<8000)return;
+   focus.last=now;
+   void check();
+  };
   const invalid=()=>void check();
   window.addEventListener('storage',changed);window.addEventListener('emavanta:session-invalid',invalid);document.addEventListener('visibilitychange',focus);
   return()=>{epoch.current++;window.removeEventListener('storage',changed);window.removeEventListener('emavanta:session-invalid',invalid);document.removeEventListener('visibilitychange',focus);};
