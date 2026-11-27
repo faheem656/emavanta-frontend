@@ -9,7 +9,7 @@ export default function Accounts(){
  const [loaded,setLoaded]=useState(false);
  useEffect(()=>{import('../../../lib/api').then(m=>m.get('/deliverability/health').then(setHealth).catch(()=>{})).finally(()=>setLoaded(true));},[]);
  if(!loaded) return <DashboardSkeleton variant="cards" />;
- return <><PageHead title="Mail accounts" subtitle="Your accounts, your reputation — connected through OAuth, SMTP or ESP API"
+ return <><PageHead title="Mail accounts" subtitle="Connect through SMTP or ESP API — every mailbox must pass a live event-tracking test (Webhook · IMAP · POP3 · Mail API) before it is added"
   actions={<span className="badge ok">{health?.accounts||'—'} active</span>}/>
   <AccountConnector/>
   <div className="card"><h2>Deliverability instruments</h2>

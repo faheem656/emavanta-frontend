@@ -11,24 +11,9 @@ import { Bars } from '../../../../components/Charts';
 import { useToast } from '../../../../components/ToastProvider';
 import { notify } from '../../../../lib/notify';
 
-const empty = { campaign: null, summary: {}, percentages: {}, timeline: {}, events: [], problems: [], byAccount: {}, recipients: 0 };
+const empty = { campaign: null, summary: {}, percentages: {}, timeline: {}, events: [], eventsTotal: 0, problems: [], byAccount: {}, recipients: 0, paceActual: null };
 const tone = t => ['bounced','complained'].includes(t) ? 'danger' : ['opened','clicked','replied','delivered'].includes(t) ? 'ok' : t === 'queued' ? 'warn' : '';
 const pct = v => `${v ?? 0}%`;
-
-const WEEKDAYS = [
-  { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' },
-  { value: 3, label: 'Wed' }, { value: 4, label: 'Thu' },
-  { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
-  { value: 7, label: 'Sun' }
-];
-const TIMEZONES = (() => {
-  try {
-    const zones = Intl.supportedValuesOf('timeZone');
-    if (Array.isArray(zones) && zones.length) return zones;
-  } catch { /* curated fallback */ }
-  return ['Asia/Karachi','UTC','Asia/Dubai','Asia/Kolkata','Europe/London','Europe/Berlin',
-    'America/New_York','America/Chicago','America/Los_Angeles','Asia/Singapore','Australia/Sydney'];
-})();
 
 export default function CampaignDetail(){
  const { id } = useParams();
@@ -41,8 +26,6 @@ export default function CampaignDetail(){
  const [preflight,setPreflight] = useState(null);
  const [prog,setProg] = useState(null);
  const [pace,setPace] = useState(null);
- const [paceBusy,setPaceBusy] = useState(false);
- const [paceMode,setPaceMode] = useState('human');
  const [senderAccounts,setSenderAccounts] = useState([]);
  const [senderSel,setSenderSel] = useState([]);
  const [sendersBusy,setSendersBusy] = useState(false);
@@ -52,8 +35,20 @@ export default function CampaignDetail(){
  const load = async () => {
   if (!id) return;
   setBusy(true);
-  try { const r = await get(`/campaigns/${encodeURIComponent(id)}/tracking`); if (r && !Array.isArray(r)) setData(r); }
+  try { const r = await get(`/campaigns/${encodeURIComponent(id)}/tracking?eventSkip=0&eventLimit=100`); if (r && !Array.isArray(r)) setData(r); }
   finally { setBusy(false); setLoaded(true); }
+ };
+ // Event stream paging: fetch one more page and append — a campaign with
+ // millions of events never loads (or renders) everything at once.
+ const loadMoreEvents = async () => {
+  if (!id || busy) return;
+  const skip = (data.events || []).length;
+  if (data.eventsTotal && skip >= data.eventsTotal) return;
+  setBusy(true);
+  try {
+   const r = await get(`/campaigns/${encodeURIComponent(id)}/tracking?eventSkip=${skip}&eventLimit=100`);
+   if (r && !Array.isArray(r)) setData(d => ({ ...d, events: [...(d.events || []), ...(r.events || [])], eventsTotal: r.eventsTotal ?? d.eventsTotal }));
+  } finally { setBusy(false); }
  };
  useEffect(() => { load(); }, [id]);
 
@@ -72,45 +67,9 @@ export default function CampaignDetail(){
    endTime: sp.schedule?.endTime || '17:00',
    daysOfWeek: Array.isArray(sp.schedule?.daysOfWeek) && sp.schedule.daysOfWeek.length ? sp.schedule.daysOfWeek : [1,2,3,4,5]
   });
-  setPaceMode(c.sendMode === 'blast' ? 'blast' : 'human');
   setSenderSel(c.accountPool || []);
  }, [data.campaign]);
 
- const savePace = async () => {
-  if (!pace) return;
-  setPaceBusy(true);
-  try {
-   const r = await patch(`/campaigns/${encodeURIComponent(id)}/pacing`, {
-    dailyCap: Number(pace.dailyCap) || 1,
-    gapSeconds: Math.max(5, Number(pace.gapSeconds) || 5),
-    timezone: pace.timezone,
-    schedule: { startTime: pace.startTime, endTime: pace.endTime, daysOfWeek: pace.daysOfWeek }
-   });
-   toast(r?.message || 'Pacing updated — the next email uses the new limit');
-   load();
-  } catch (e) { notify(toast, e); } finally { setPaceBusy(false); }
- };
-
- // Switching modes mid-send: blast hands every unfinished batch to the fast path,
- // human re-arms the one-at-a-time pacer — both without pausing the campaign.
- const saveMode = async () => {
-  if (!pace || paceMode === (data.campaign?.sendMode || 'human')) return;
-  setPaceBusy(true);
-  try {
-   const body = paceMode === 'blast'
-    ? { sendMode: 'blast' }
-    : { sendMode: 'human', dailyCap: Number(pace.dailyCap) || 1,
-        gapSeconds: Math.max(5, Number(pace.gapSeconds) || 5), timezone: pace.timezone,
-        schedule: { startTime: pace.startTime, endTime: pace.endTime, daysOfWeek: pace.daysOfWeek } };
-   const r = await patch(`/campaigns/${encodeURIComponent(id)}/pacing`, body);
-   toast(r?.message || (paceMode === 'blast' ? 'Blast on — the rest of the list drains now' : 'Human pacing resumed from where it stopped'));
-   load();
-  } catch (e) { notify(toast, e); } finally { setPaceBusy(false); }
- };
- const togglePaceDay = day => setPace(p => p ? ({
-  ...p,
-  daysOfWeek: p.daysOfWeek.includes(day) ? p.daysOfWeek.filter(v => v !== day) : [...p.daysOfWeek, day].sort((a,b)=>a-b)
- }) : p);
 
  // Full event stream grouped per lead — every lead starts collapsed so a big
  // campaign shows one tidy row per contact instead of hundreds of event rows.
@@ -177,7 +136,7 @@ export default function CampaignDetail(){
   ['Sent',s.sent||0,'accepted by provider','#2563eb'],
   ['Delivered',s.delivered||0,`${pct(p.delivery)} delivery rate${data.deliveryEstimated?' (est.)':''}`,'#0f9d6e'],
   ['Opened',s.opened||0,`${pct(p.open)} of delivered`,'#b58a3a'],
-  ['Clicked',s.clicked||0,`${pct(p.click)} of opens`,'#1d9d9d'],
+  ['Clicked',s.clicked||0,`${pct(p.click)} of delivered`,'#1d9d9d'],
   ['Bounced',s.bounced||0,`${pct(p.bounce)} bounce rate`,'#d64550'],
   ['Complained',s.complained||0,`${pct(p.complaint)} complaint rate`,'#d64550'],
   ['Unsubscribed',s.unsubscribed||0,`${pct(p.unsubscribe)} opt-out rate`,'#b7791f']
@@ -263,79 +222,53 @@ export default function CampaignDetail(){
   {pace && <div className="card luxe-card" style={{marginTop:14}}>
    <div className="mini-row">
     <h2 style={{margin:0}}>Sending pace</h2>
-    <span className="badge ok">applies to the very next email</span>
+    <span className="badge">read-only · how this campaign sends</span>
    </div>
-   <div className="row" style={{gap:8,marginTop:8,alignItems:'center',flexWrap:'wrap'}}>
+   <div className="row" style={{gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
     <span className="muted" style={{fontSize:12,fontWeight:600}}>Mode</span>
-    {[['human','Human-paced'],['blast','Blast']].map(([v,l])=>
-     <button key={v} type="button" className={`chip ${paceMode===v?'chip-active':''}`}
-      onClick={()=>setPaceMode(v)}>{l}</button>)}
+    <span className={`chip ${(c.sendMode||'human')==='blast'?'chip-active':''}`}>{(c.sendMode||'human')==='blast'?'Blast':'Human-paced'}</span>
     <span className="muted" style={{fontSize:11.5}}>
-     {paceMode==='blast'
-      ? 'Blast sends everything back-to-back — the rest of the list drains in minutes.'
-      : 'One email at a time with a natural pause.'}
+     {(c.sendMode||'human')==='blast'
+      ? 'Blast sends everything back-to-back inside the sending window.'
+      : 'One email at a time with a natural pause between sends.'}
     </span>
    </div>
-   <p className="muted" style={{fontSize:12,marginTop:6}}>
-    {paceMode==='blast'
-     ? 'Switch anytime while the campaign is sending — no pause needed. Blast still respects your schedule window and plan limits.'
-     : 'Change the daily limit or schedule while the campaign is sending — no pause needed. Human pacing stays on: one email at a time with a natural pause.'}
-   </p>
-   {paceMode==='human' && <>
-   <div className="row" style={{gap:12,flexWrap:'wrap',marginTop:10,alignItems:'flex-end'}}>
-    <div style={{width:150}}>
-     <label>Daily limit</label>
-     <input type="number" min={1} max={2000} value={pace.dailyCap}
-      onChange={e=>setPace({...pace,dailyCap:Number(e.target.value)||1})} />
-    </div>
-    <div style={{width:170}}>
-     <label>Pause between emails</label>
-     <div className="row" style={{gap:6}}>
-      <input type="number" min={5} max={3600} value={pace.gapSeconds}
-       onChange={e=>setPace({...pace,gapSeconds:Math.max(5,Number(e.target.value)||5)})} />
-      <span className="muted">sec</span>
-     </div>
-    </div>
-    <div style={{flex:'1 1 220px',minWidth:220}}>
-     <label>Timezone</label>
-     <select value={pace.timezone} onChange={e=>setPace({...pace,timezone:e.target.value})}>
-      {[...new Set([pace.timezone,...TIMEZONES].filter(Boolean))].map(z=><option key={z} value={z}>{z.replaceAll('_',' ')}</option>)}
-     </select>
-    </div>
-   </div>
-   <div className="row" style={{gap:12,flexWrap:'wrap',marginTop:12,alignItems:'flex-end'}}>
-    <div style={{width:140}}><label>Sending from</label>
-     <input type="time" value={pace.startTime} onChange={e=>setPace({...pace,startTime:e.target.value})} /></div>
-    <div style={{width:140}}><label>Sending until</label>
-     <input type="time" value={pace.endTime} onChange={e=>setPace({...pace,endTime:e.target.value})} /></div>
-    <div style={{flex:'1 1 280px'}}>
-     <label>Days</label>
-     <div className="row" style={{gap:7,flexWrap:'wrap',marginTop:4}}>
-      {WEEKDAYS.map(d=><button key={d.value} type="button"
-       className={`chip ${pace.daysOfWeek.includes(d.value)?'chip-active':''}`}
-       onClick={()=>togglePaceDay(d.value)}>{d.label}</button>)}
+   <div className="row" style={{gap:14,marginTop:12,flexWrap:'wrap'}}>
+    {(c.sendMode||'human')!=='blast' && <div style={{minWidth:120}}>
+     <div className="muted" style={{fontSize:11}}>Pause between emails</div>
+     <b>{pace.gapSeconds}s</b></div>}
+    <div style={{minWidth:120}}>
+     <div className="muted" style={{fontSize:11}}>Daily limit</div>
+     <b>{pace.dailyCap}/mailbox/day</b></div>
+    <div style={{minWidth:170}}>
+     <div className="muted" style={{fontSize:11}}>Sending window</div>
+     <b>{pace.startTime}–{pace.endTime}</b>
+     <div className="muted" style={{fontSize:11}}>
+      {(pace.daysOfWeek||[]).length>=7?'every day':(pace.daysOfWeek||[]).map(d=>['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d]||d).join(', ')}
+      {' · '}{(pace.timezone||'').replaceAll('_',' ')}
      </div>
     </div>
    </div>
-   </>}
-   {paceMode==='blast' && <div className="notice" style={{marginTop:12}}>
-    <b>Blast:</b> every remaining contact goes out back-to-back — the list can finish in minutes.
-    Sending still happens only inside your window: <b>{pace.startTime}–{pace.endTime}</b> ({pace.timezone}).
-   </div>}
-   <div className="row" style={{gap:10,marginTop:12,alignItems:'center',flexWrap:'wrap'}}>
-    <button className="btn sm" onClick={paceMode===(c.sendMode||'human')?savePace:saveMode} disabled={paceBusy}>
-     {paceBusy?'Saving…':paceMode===(c.sendMode||'human')?'Save pace':paceMode==='blast'?'Switch to Blast':'Switch to Human'}
-    </button>
-    <span className="muted" style={{fontSize:11.5}}>
-     {paceMode===(c.sendMode||'human')
-      ? 'Edits apply to the very next email.'
-      : 'The switch applies immediately — sending continues without a pause.'}
-    </span>
+   {data.paceActual?.firstAt ? <div className="row" style={{gap:14,marginTop:14,flexWrap:'wrap'}}>
+    <div style={{minWidth:150}}>
+     <div className="muted" style={{fontSize:11}}>Actual — first send</div>
+     <b style={{fontSize:13}}>{new Date(data.paceActual.firstAt).toLocaleString()}</b></div>
+    <div style={{minWidth:150}}>
+     <div className="muted" style={{fontSize:11}}>Last send</div>
+     <b style={{fontSize:13}}>{new Date(data.paceActual.lastAt).toLocaleString()}</b></div>
+    <div style={{minWidth:90}}>
+     <div className="muted" style={{fontSize:11}}>Sent</div>
+     <b>{Number(data.paceActual.sent||0).toLocaleString()}</b></div>
+    {data.paceActual.avgGapSec ? <div style={{minWidth:90}}>
+     <div className="muted" style={{fontSize:11}}>Avg gap</div>
+     <b>{data.paceActual.avgGapSec>=60?`${Math.round(data.paceActual.avgGapSec/60)} min`:`${data.paceActual.avgGapSec}s`}</b></div> : null}
+    {data.paceActual.perHour ? <div style={{minWidth:100}}>
+     <div className="muted" style={{fontSize:11}}>Throughput</div>
+     <b>{Number(data.paceActual.perHour).toLocaleString()}/hr</b></div> : null}
+   </div> : <div className="muted" style={{fontSize:12,marginTop:12}}>No sends yet — the actual pace appears once the first email goes out.</div>}
+   <div className="notice" style={{marginTop:12}}>
+    Pace is fixed while the campaign runs. This card shows how sending <b>actually happened</b> — it cannot be changed here.
    </div>
-   {paceMode==='human' && <div className="notice" style={{marginTop:12}}>
-    Emails send from <b>{pace.startTime}</b> to <b>{pace.endTime}</b> ({pace.timezone}),
-    capped at <b>{pace.dailyCap}</b> per mailbox per day — the counter resets every day.
-   </div>}
   </div>}
 
   {['queued','paused'].includes(c.status) && <div className="card luxe-card" style={{marginTop:14}}>
@@ -454,6 +387,14 @@ export default function CampaignDetail(){
     ))}
     {!leads.length && <tr><td colSpan={4}><div className="empty">No events yet — launch or send a test.</div></td></tr>}
    </tbody></table></div>
+   <div className="row" style={{justifyContent:'space-between',alignItems:'center',marginTop:10,flexWrap:'wrap',gap:8}}>
+    <span className="muted" style={{fontSize:11.5}}>
+     Showing {Number((data.events||[]).length).toLocaleString()} of {Number(data.eventsTotal||0).toLocaleString()} events
+    </span>
+    {(data.eventsTotal||0) > (data.events||[]).length
+     ? <button className="btn secondary sm" disabled={busy} onClick={loadMoreEvents}>{busy?'Loading…':'Load more events'}</button>
+     : <span className="muted" style={{fontSize:11.5}}>All events loaded</span>}
+   </div>
   </div>
 
   {testOpen && <Modal title="Send tracked test" onClose={()=>setTestOpen(false)}

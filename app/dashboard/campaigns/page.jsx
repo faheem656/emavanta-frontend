@@ -153,7 +153,7 @@ export default function Campaigns(){
        {c.status==='draft'&&<Link className="btn ghost sm" href={`/dashboard/campaigns/${encodeURIComponent(c._id)}/edit`} title="Edit draft">Edit</Link>}
        {c.status==='draft'||c.status==='paused'||c.status==='scheduled'
         ? <button className="btn secondary sm" onClick={()=>askLaunch(c)}><Icon name="bolt" size={14}/> {c.status==='scheduled'?'Launch now':'Launch'}</button>
-        : <button className="btn ghost sm" onClick={()=>pause(c)}>Pause</button>}
+        : c.status==='queued' ? <button className="btn ghost sm" onClick={()=>pause(c)}>Pause</button> : null}
        <button className="btn ghost sm" onClick={()=>runPreflight(c)} title="Preflight"><Icon name="check" size={14}/></button>
        <button className="btn ghost sm" onClick={()=>{setTestTarget(c);setTestResult(null);setTestEmail('');}} title="Send test"><Icon name="mail" size={14}/></button>
        <Link className="btn ghost sm" href={`/dashboard/campaigns/${encodeURIComponent(c._id)}`} title="Details & tracking"><Icon name="chart" size={14}/></Link>
