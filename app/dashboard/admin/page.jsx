@@ -10,7 +10,7 @@ const localNow = () => { const d=new Date(); return new Date(d.getTime()-d.getTi
 const termEnd = (raw, interval) => { const d=new Date(raw); if (!Number.isFinite(d.getTime())) return null; const day=d.getUTCDate(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth()+(interval==='year'?12:1)); const last=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate(); d.setUTCDate(Math.min(day,last)); return d; };
 
 export default function Admin() {
- const [access,setAccess]=useState(null), [error,setError]=useState(''), [spaces,setSpaces]=useState([]), [users,setUsers]=useState([]), [plans,setPlans]=useState([]), [busy,setBusy]=useState(''), [setup,setSetup]=useState(null), [redisCheck,setRedisCheck]=useState(null), [payments,setPayments]=useState([]), [cardPayments,setCardPayments]=useState([]), [cryptoLocks,setCryptoLocks]=useState([]), [userPage,setUserPage]=useState(0), [pendingCount,setPendingCount]=useState(0),[contactMessages,setContactMessages]=useState([]),[editingPlan,setEditingPlan]=useState(null),[selectedPlan,setSelectedPlan]=useState(''),[planReason,setPlanReason]=useState(''),[planInterval,setPlanInterval]=useState('month'),[planStart,setPlanStart]=useState(''),[planSnapshot,setPlanSnapshot]=useState(null);
+ const [access,setAccess]=useState(null), [error,setError]=useState(''), [spaces,setSpaces]=useState([]), [users,setUsers]=useState([]), [plans,setPlans]=useState([]), [busy,setBusy]=useState(''), [setup,setSetup]=useState(null), [redisCheck,setRedisCheck]=useState(null), [payments,setPayments]=useState([]), [cardPayments,setCardPayments]=useState([]), [cryptoLocks,setCryptoLocks]=useState([]), [userPage,setUserPage]=useState(0), [pendingCount,setPendingCount]=useState(0),[contactMessages,setContactMessages]=useState([]),[editingPlan,setEditingPlan]=useState(null),[selectedPlan,setSelectedPlan]=useState(''),[planReason,setPlanReason]=useState(''),[planInterval,setPlanInterval]=useState('month'),[planStart,setPlanStart]=useState(''),[planSnapshot,setPlanSnapshot]=useState(null),[editingCredits,setEditingCredits]=useState(''),[creditAction,setCreditAction]=useState('grant'),[creditAmount,setCreditAmount]=useState(''),[creditReason,setCreditReason]=useState('');
  const [loading,setLoading]=useState(true), [activeTab,setActiveTab]=useState('overview');
  // Dialog replaces window.prompt/confirm (blocked in embedded/preview frames)
  // and flash replaces alert() the same way.
@@ -131,6 +131,28 @@ export default function Admin() {
   });
  }
 
+ // Verification credits: PACKS ONLY (no plan includes any) — the owner can
+ // grant or set a workspace's one-time balance from here; audited backend-side.
+ async function saveCredits(w) {
+  const amount=Number(creditAmount);
+  if(!Number.isSafeInteger(amount)||amount<0||amount>10000000||creditReason.trim().length<10) {
+   setError('Enter a whole number of credits (0–10,000,000) and a reason of 10–500 characters.');return;
+  }
+  openDialog({
+   title:`${creditAction==='grant'?'Grant':'Set'} verification credits · ${w.name}`,
+   message:creditAction==='grant'
+    ? `Add ${amount.toLocaleString()} credits to ${w.name} (current balance ${(w.verifyCredits||0).toLocaleString()} → ${((w.verifyCredits||0)+amount).toLocaleString()})? One-time, never expires, no payment recorded.`
+    : `Set ${w.name} verification credits to ${amount.toLocaleString()} (current balance ${(w.verifyCredits||0).toLocaleString()})? This replaces the balance; no payment recorded.`,
+   confirmLabel:creditAction==='grant'?'Grant credits':'Set balance',
+   run: async () => {
+    const r=await post(`/admin/workspaces/${encodeURIComponent(w.id)}/verification-credits`,
+      {action:creditAction,amount,reason:creditReason.trim()});
+    setFlash(r.message||'Verification credits updated.');setEditingCredits(null);setCreditAmount('');setCreditReason('');
+    await load();
+   }
+  });
+ }
+
  return <>
   <PageHead title="Platform administration" subtitle="Owner-only workspace and account oversight" actions={<button className="btn secondary sm" onClick={()=>load()}>Refresh</button>}/>
   {error && <div className="notice warn" role="alert">{error}</div>}
@@ -175,7 +197,23 @@ export default function Admin() {
    </div>}
    {activeTab==='workspaces'&&<div className="admin-tab-content">
    <div className="card luxe-card" style={{marginTop:16,overflowX:'auto'}}><h2>Workspaces and recent invoices</h2><p className="muted">Showing up to 100 workspaces and 5 recorded invoices per workspace. Refresh for current records.</p>
-    <table><thead><tr><th>Workspace</th><th>Owner</th><th>Plan</th><th>Recent invoices</th><th>Action</th></tr></thead><tbody>{spaces.map(w=><tr key={w.id}><td>{w.name}</td><td>{w.owner?.email || '—'}</td><td><b>{w.plan}</b><div className="muted" style={{fontSize:11,marginTop:4}}>{w.planSource || 'legacy'}{w.planExpiresAt ? ` · ends ${new Date(w.planExpiresAt).toLocaleDateString()}` : ''}</div></td><td>{w.invoices.length ? w.invoices.map((i,n)=><div key={n}>{i.number || 'Invoice'} · {i.amount} {i.currency} · {i.status} · {i.date?.slice(0,10)}</div>) : 'No recorded invoices'}</td><td>{editingPlan===w.id?<div style={{display:'grid',gap:8,minWidth:190}}><label htmlFor={`plan-${w.id}`}>New plan</label><select id={`plan-${w.id}`} value={selectedPlan} disabled={!!busy} onChange={e=>setSelectedPlan(e.target.value)}>{plans.map(p=><option key={p.code} value={p.code}>{p.name} · ${p.monthly}/mo</option>)}</select>{selectedPlan!=='free' && <><label htmlFor={`interval-${w.id}`}>Plan term</label><select id={`interval-${w.id}`} value={planInterval} disabled={!!busy} onChange={e=>setPlanInterval(e.target.value)}><option value="month">Monthly · 1 month</option><option value="year">Yearly · 12 months</option></select><label htmlFor={`start-${w.id}`}>Starts (your local time)</label><input id={`start-${w.id}`} type="datetime-local" value={planStart} onChange={e=>setPlanStart(e.target.value)} disabled={!!busy}/><div className="admin-term-preview">Term ends: <b>{termEnd(planStart,planInterval)?.toLocaleString() || 'Choose a start time'}</b><small>Starts immediately; future or already-ended terms cannot be assigned.</small></div></>}<label htmlFor={`reason-${w.id}`}>Reason</label><input id={`reason-${w.id}`} value={planReason} onChange={e=>setPlanReason(e.target.value)} maxLength={500} placeholder="Reason (10+ characters)" disabled={!!busy}/><div><button className="btn sm" disabled={!!busy||planReason.trim().length<10||(selectedPlan!=='free'&&!planStart)} onClick={()=>changePlan(w)}>Save plan</button>{' '}<button className="btn ghost sm" disabled={!!busy} onClick={()=>{setEditingPlan(null);setPlanReason('');}}>Cancel</button></div></div>:<button className="btn secondary sm" disabled={!!busy||!plans.length} onClick={()=>{setEditingPlan(w.id);setPlanSnapshot({...w});setSelectedPlan(w.plan);setPlanReason('');setPlanInterval('month');setPlanStart(localNow());}}>Change plan</button>}</td></tr>)}</tbody></table>
+    <table><thead><tr><th>Workspace</th><th>Owner</th><th>Plan</th><th>Recent invoices</th><th>Action</th></tr></thead><tbody>{spaces.map(w=><tr key={w.id}><td>{w.name}</td><td>{w.owner?.email || '—'}</td><td><b>{w.plan}</b><div className="muted" style={{fontSize:11,marginTop:4}}>{w.planSource || 'legacy'}{w.planExpiresAt ? ` · ends ${new Date(w.planExpiresAt).toLocaleDateString()}` : ''}</div></td><td>{w.invoices.length ? w.invoices.map((i,n)=><div key={n}>{i.number || 'Invoice'} · {i.amount} {i.currency} · {i.status} · {i.date?.slice(0,10)}</div>) : 'No recorded invoices'}</td><td>{editingCredits===w.id
+ ? <div style={{display:'grid',gap:8,minWidth:210}}>
+    <div className="muted" style={{fontSize:11}}>Verification credits balance <b>{(w.verifyCredits||0).toLocaleString()}</b> · plans include none — packs only</div>
+    <select value={creditAction} disabled={!!busy} onChange={e=>setCreditAction(e.target.value)} aria-label="Credit action">
+     <option value="grant">Grant (add credits)</option>
+     <option value="set">Set (replace balance)</option>
+    </select>
+    <input type="number" min="0" step="1" placeholder="Number of credits" value={creditAmount} disabled={!!busy}
+      onChange={e=>setCreditAmount(e.target.value)} aria-label="Credits"/>
+    <input placeholder="Reason (10+ characters)" value={creditReason} maxLength={500} disabled={!!busy}
+      onChange={e=>setCreditReason(e.target.value)} aria-label="Reason"/>
+    <div><button className="btn sm" disabled={!!busy||creditReason.trim().length<10||creditAmount===''} onClick={()=>saveCredits(w)}>Apply</button>{' '}
+    <button className="btn ghost sm" disabled={!!busy} onClick={()=>{setEditingCredits(null);setCreditAmount('');setCreditReason('');}}>Cancel</button></div>
+   </div>
+ : editingPlan===w.id?<div style={{display:'grid',gap:8,minWidth:190}}><label htmlFor={`plan-${w.id}`}>New plan</label><select id={`plan-${w.id}`} value={selectedPlan} disabled={!!busy} onChange={e=>setSelectedPlan(e.target.value)}>{plans.map(p=><option key={p.code} value={p.code}>{p.name} · ${p.monthly}/mo</option>)}</select>{selectedPlan!=='free' && <><label htmlFor={`interval-${w.id}`}>Plan term</label><select id={`interval-${w.id}`} value={planInterval} disabled={!!busy} onChange={e=>setPlanInterval(e.target.value)}><option value="month">Monthly · 1 month</option><option value="year">Yearly · 12 months</option></select><label htmlFor={`start-${w.id}`}>Starts (your local time)</label><input id={`start-${w.id}`} type="datetime-local" value={planStart} onChange={e=>setPlanStart(e.target.value)} disabled={!!busy}/><div className="admin-term-preview">Term ends: <b>{termEnd(planStart,planInterval)?.toLocaleString() || 'Choose a start time'}</b><small>Starts immediately; future or already-ended terms cannot be assigned.</small></div></>}<label htmlFor={`reason-${w.id}`}>Reason</label><input id={`reason-${w.id}`} value={planReason} onChange={e=>setPlanReason(e.target.value)} maxLength={500} placeholder="Reason (10+ characters)" disabled={!!busy}/><div><button className="btn sm" disabled={!!busy||planReason.trim().length<10||(selectedPlan!=='free'&&!planStart)} onClick={()=>changePlan(w)}>Save plan</button>{' '}<button className="btn ghost sm" disabled={!!busy} onClick={()=>{setEditingPlan(null);setPlanReason('');}}>Cancel</button></div></div>:<div className="row" style={{gap:6,flexWrap:'wrap'}}><button className="btn secondary sm" disabled={!!busy||!plans.length} onClick={()=>{setEditingPlan(w.id);setPlanSnapshot({...w});setSelectedPlan(w.plan);setPlanReason('');setPlanInterval('month');setPlanStart(localNow());}}>Change plan</button>
+    <button className="btn secondary sm" disabled={!!busy} title="Verification credits — grant or set (packs only, never expire)"
+      onClick={()=>{setEditingCredits(w.id);setCreditAction('grant');setCreditAmount('');setCreditReason('');}}>Credits · {(w.verifyCredits||0).toLocaleString()}</button></div>}</td></tr>)}</tbody></table>
    </div>
    </div>}
    {activeTab==='users'&&<div className="admin-tab-content">

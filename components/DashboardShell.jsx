@@ -36,7 +36,8 @@ const NAV = [
   ] },
   { key: 'deliverability', label: 'Deliverability', icon: 'shield', items: [
     ['/dashboard/accounts', 'Mail accounts', 'bolt'],
-    ['/dashboard/deliverability', 'Deliverability', 'shield']
+    ['/dashboard/deliverability', 'Deliverability', 'shield'],
+    ['/dashboard/verification', 'Verification', 'check']
   ] },
   { key: 'insights', label: 'Insights', icon: 'chart', items: [
     ['/dashboard/analytics', 'Analytics', 'chart'],
@@ -45,6 +46,7 @@ const NAV = [
   { key: 'workspace', label: 'Workspace', icon: 'settings', items: [
     ['/dashboard/team', 'Team', 'users'],
     ['/dashboard/billing', 'Billing', 'card'],
+    ['/dashboard/subscriptions', 'Subscriptions', 'check'],
     ['/dashboard/security', 'Security', 'shield'],
     ['/dashboard/admin', 'System', 'settings'],
     ['/dashboard/settings', 'Settings', 'settings']

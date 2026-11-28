@@ -86,6 +86,35 @@ export default function Pricing(){
     </section>
 
     <section className="section container">
+      <h2 className="section-title">Email verification credits</h2>
+      <p className="section-sub">
+        Our own verification engine — syntax, disposable, typo, DNS/MX and a per-domain catch-all probe.
+        No resold APIs, and never a claim of “100% accurate”. <b>No plan includes any
+        verification credits</b> — they are bought separately as one-time packs that
+        <b> never expire</b>.
+      </p>
+      <div className="cards3 addon-grid">
+        {Object.values(data.addons||{}).filter(a=>a.dimension==='verification_credits').map(a=><div className="card2 addon" key={a.code}>
+          <div className="mini-head">
+            <h3>{fmtLimit(a.amount)} credits</h3>
+            <span className="addon-price">${a.price}</span>
+          </div>
+          <p>${(a.price/(a.amount/1000)).toFixed(2)} per1,000 · one-time, never expires</p>
+        </div>)}
+      </div>
+      <div className="strip" style={{marginTop:22}}>
+        <span className="chip">1 credit = 1 address checked</span>
+        <span className="chip">Duplicates free (same list · fresh re-check)</span>
+        <span className="chip">“Unknown” results refunded automatically</span>
+        <span className="chip">Errors refunded · auto-retried free</span>
+        <span className="chip">Credits never expire</span>
+        <span className="chip">Bounce / unsubscribe / complaint protection always free</span>
+        <span className="chip">Plans include none — verification is packs only</span>
+        <span className="chip">Packs from $19 / 2,000 credits</span>
+      </div>
+    </section>
+
+    <section className="section container">
       <h2 className="section-title">How we compare</h2>
       <div className="compare-wrap"><table className="compare">
         <thead><tr><th></th><th>Emavanta</th><th>Per-seat sales tools</th><th>ESP bundles</th></tr></thead>
@@ -107,6 +136,8 @@ export default function Pricing(){
         ['Do mailbox slots include a mailbox?','No. They allow you to connect that many of your own Google/Microsoft/SMTP/ESP accounts. You pay your provider directly.'],
         ['Can I change plans mid-cycle?','Upgrades apply immediately with proration; downgrades take effect at the end of the period. Your data stays available and becomes read-only before archival.'],
         ['Do you provide an email API or mailboxes?','No. We do not provide email-sending APIs, IPs or mailbox supply. You connect your own provider; our internal service only powers the dashboard.'],
+        ['How do verification credits work?','1 credit = 1 address checked, and no plan includes any — verification is bought separately as one-time packs that never expire. Checking the same address again while the result is fresh is free, and “unknown” results are refunded automatically.'],
+        ['Is verification 100% accurate?','No verifier can honestly promise that. We combine syntax, disposable/role/typo dictionaries, DNS MX checks and an SMTP catch-all probe — strong signal for blocking hard bounces — but mailbox-level existence is never guaranteed without contacting the server directly.'],
         ['Do you offer GDPR compliance?','No compliance certification is marketed. The customer is the sender/controller and is responsible for their messages. We provide privacy and hygiene tooling, and a lawyer-reviewed Terms/DPA.']
       ]}/>
       <div className="footer-cta">

@@ -17,6 +17,7 @@ export default function Overview(){
  const [automations,setAutomations] = useState([]);
  const [alerts,setAlerts] = useState(null);
  const [activity,setActivity] = useState([]);
+ const [vStats,setVStats] = useState(null);
  const [tick,setTick] = useState(0);
  const [loading,setLoading] = useState(true);
 
@@ -25,16 +26,17 @@ export default function Overview(){
   const load = async () => {
    const results = await Promise.allSettled([
     get('/analytics/overview'), get('/analytics/tracking?limit=60'), get('/campaigns'),
-    get('/sequences'), get('/billing/alerts'), get('/activity')
+    get('/sequences'), get('/billing/alerts'), get('/activity'), get('/contacts/verification-stats')
    ]);
    if (!alive) return;
-   const [overview, trackingData, campaignData, sequenceData, alertData, activityData] = results;
+   const [overview, trackingData, campaignData, sequenceData, alertData, activityData, verifData] = results;
    if (overview.status === 'fulfilled' && overview.value && !Array.isArray(overview.value)) setS(overview.value);
    if (trackingData.status === 'fulfilled' && trackingData.value && !Array.isArray(trackingData.value)) setTracking(trackingData.value);
    if (campaignData.status === 'fulfilled') setCampaigns(arr(campaignData.value));
    if (sequenceData.status === 'fulfilled') setAutomations(arr(sequenceData.value));
    if (alertData.status === 'fulfilled' && alertData.value && !Array.isArray(alertData.value)) setAlerts(alertData.value);
    if (activityData.status === 'fulfilled') setActivity(arr(activityData.value));
+   if (verifData.status === 'fulfilled' && verifData.value && !Array.isArray(verifData.value)) setVStats(verifData.value);
    setTick(t => t + 1);
    setLoading(false);
   };
@@ -94,6 +96,51 @@ export default function Overview(){
     <div className="muted" style={{fontSize:11.5}}>{k.hint}</div>
    </div>)}
   </div>
+
+  {vStats && (() => {
+   const c = vStats.counts || {};
+   const checked = Math.max(0, (vStats.total||0) - (c.UNVERIFIED||0));
+   const pctChecked = vStats.total ? Math.round((checked / vStats.total) * 100) : 0;
+   const credits = vStats.credits || {};
+   const segs = [
+    { key:'VALID', label:'Deliverable', color:'#0f9d6e', n:c.VALID||0 },
+    { key:'CATCH_ALL', label:'Catch-all', color:'#f2a93b', n:c.CATCH_ALL||0 },
+    { key:'RISKY', label:'Risky', color:'#d97706', n:c.RISKY||0 },
+    { key:'INVALID', label:'Invalid', color:'#d64550', n:c.INVALID||0 },
+    { key:'PENDING', label:'Checking', color:'#4c3fd0', n:c.PENDING||0 },
+    { key:'UNKNOWN', label:'Unknown', color:'#94a3b8', n:(c.UNKNOWN||0)+(c.ERROR||0) }
+   ];
+   return <div className="card luxe-card" style={{padding:20,marginBottom:14}}>
+    <div className="mini-row">
+     <div><h2 style={{margin:0}}>Email verification</h2>
+      <span className="muted" style={{fontSize:12}}>Invalid addresses are blocked before sending · checks are shared across your workspace</span></div>
+     <div className="row" style={{gap:8}}>
+      <Link className="btn secondary sm" href="/dashboard/verification">Open verification</Link>
+      <Link className="btn sm" href="/dashboard/billing">Top up credits</Link>
+     </div>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) 2fr',gap:20,marginTop:14,alignItems:'center'}}>
+     <div>
+      <div className="stat-label">Contacts checked</div>
+      <div className="kpi-value" style={{fontSize:26}}>{checked.toLocaleString()} <span style={{fontSize:14,color:'var(--muted,#94a3b8)'}}>/ {(vStats.total||0).toLocaleString()}</span></div>
+      <div className="minibar" style={{marginTop:8}}><i style={{width:`${pctChecked}%`}}/></div>
+      <div className="muted" style={{fontSize:11.5,marginTop:6}}>
+       {pctChecked}% checked · {credits.remaining!=null
+        ? <b>{credits.remaining<0?'unlimited':credits.remaining.toLocaleString()} credits left</b>
+        : 'credits —'}
+       {credits.planAllowance>0 && credits.cycleUsed!=null ? ` · ${credits.cycleUsed}/${credits.planAllowance} this cycle` : ''}
+      </div>
+     </div>
+     <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10}}>
+      {segs.map(s=><div key={s.key} style={{border:'1px solid var(--border)',borderRadius:10,padding:'10px 12px'}}>
+       <div className="row" style={{gap:6,alignItems:'center'}}><i style={{width:8,height:8,borderRadius:99,background:s.color,display:'inline-block'}}/>
+        <span className="muted" style={{fontSize:11.5}}>{s.label}</span></div>
+       <b style={{fontSize:18,display:'block',marginTop:4}}>{(s.n||0).toLocaleString()}</b>
+      </div>)}
+     </div>
+    </div>
+   </div>;
+  })()}
 
   <div className="dash-row">
    <div className="card luxe-card" style={{padding:20}}>

@@ -130,6 +130,7 @@ export default function Billing() {
   const [cryptoHistory, setCryptoHistory] = useState([]);
 
   const [addonLabels, setAddonLabels] = useState({});
+  const [packs, setPacks] = useState([]);   // one-time verification credit packs
   const [cancelBusy, setCancelBusy] = useState('');
   const [cancelError, setCancelError] = useState('');
 
@@ -181,6 +182,11 @@ export default function Billing() {
           }
 
           setAddonLabels(map);
+          setPacks(
+            Object.values(response?.addons || {}).filter(
+              addon => addon.dimension === 'verification_credits'
+            )
+          );
         })
     ]).then(() => setLoaded(true));
   };
@@ -510,6 +516,54 @@ export default function Billing() {
             ))}
           </div>
 
+          {/* VERIFICATION CREDITS — packs only, no plan includes any */}
+          <div
+            className="mini-row"
+            style={{
+              marginTop: 16,
+              paddingTop: 12,
+              borderTop: '1px solid var(--border)'
+            }}
+          >
+            <div>
+              <div className="stat-label">verification credits · pack balance</div>
+
+              <div
+                style={{
+                  fontSize: 20,
+                  fontWeight: 700
+                }}
+              >
+                {Number(usage?.verification?.packBalance || 0).toLocaleString()}
+
+                <span
+                  className="muted"
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500
+                  }}
+                >
+                  {' '}
+                  · never expires
+                </span>
+              </div>
+            </div>
+
+            <a className="btn secondary sm" href="#packs">Buy packs</a>
+          </div>
+
+          <p
+            className="muted"
+            style={{
+              marginTop: 8,
+              fontSize: 12
+            }}
+          >
+            Plans do not include verification credits — they are bought separately
+            as one-time packs (never expire). 1 credit = 1 address checked;
+            duplicates and refunded “unknown” results cost nothing.
+          </p>
+
           <p
             className="muted"
             style={{
@@ -684,6 +738,80 @@ export default function Billing() {
       {sub?.stripeEnabled === true && (
         <div style={{ marginTop: 18 }}>
           <PaymentMethods onChanged={load} />
+        </div>
+      )}
+
+      {/* VERIFICATION CREDIT PACKS — one-time, never expire */}
+
+      {packs.length > 0 && (
+        <div
+          id="packs"
+          className="card"
+          style={{ marginTop: 18, scrollMarginTop: 20 }}
+        >
+          <div className="mini-row">
+            <div>
+              <h2 style={{ margin: 0 }}>
+                Verification credit packs
+              </h2>
+
+              <p className="muted" style={{ margin: '4px 0 0', fontSize: 12 }}>
+                One-time purchase — the only way to get verification credits
+                (no plan includes any). Credits never expire; unknown results
+                are refunded automatically.
+              </p>
+            </div>
+
+            <span className="badge">
+              {Number(usage?.verification?.packBalance || 0).toLocaleString()} in balance
+            </span>
+          </div>
+
+          <div
+            className="grid"
+            style={{
+              gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
+              marginTop: 14
+            }}
+          >
+            {packs.map(pack => (
+              <div
+                key={pack.code}
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 12,
+                  padding: 14
+                }}
+              >
+                <div className="stat-label">
+                  {Number(pack.amount).toLocaleString()} credits
+                </div>
+
+                <div style={{ fontSize: 22, fontWeight: 700 }}>
+                  ${pack.price}
+                </div>
+
+                <div className="muted" style={{ fontSize: 11.5, margin: '2px 0 10px' }}>
+                  ${(pack.price / (pack.amount / 1000)).toFixed(2)} per 1,000
+                  {' · '}
+                  ${(pack.price * 1000 / pack.amount).toFixed(2)}/1k
+                </div>
+
+                <button
+                  className="btn secondary sm"
+                  onClick={() =>
+                    setIntent({
+                      kind: 'addon',
+                      code: pack.code,
+                      quantity: 1
+                    })
+                  }
+                >
+                  Buy pack
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

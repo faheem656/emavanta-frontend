@@ -8,6 +8,11 @@ import Modal from './Modal';
 
 const METHOD_LABEL = { smtp:'SMTP', esp_api:'ESP API key', google:'Google OAuth', microsoft:'Microsoft OAuth' };
 const TRACK_LABEL = { hostinger:'Hostinger', webhook:'Custom webhook', imap:'IMAP', pop3:'POP3', mailapi:'Mail API' };
+/** Channels offered on NEW mailboxes. Webhook + Hostinger stay fully working
+ *  for mailboxes that already have them (re-test, secret update) — they are just
+ *  no longer offered for selection. */
+const TRACK_OPTIONS = ['imap', 'pop3', 'mailapi'];
+const isLegacyTrack = m => m === 'webhook' || m === 'hostinger';
 const TRACK_HELP = {
   hostinger: 'Paste the Mail API token from hPanel → Agentic Mail → API access (permissions: SMTP/IMAP actions + Manage webhooks). We verify the token and REGISTER THE WEBHOOK OURSELVES — no URL to copy, no "publicly accessible HTTPS endpoint" to set up by hand.',
   webhook: 'Your provider POSTs signed bounce/complaint events to a URL we give you after saving. Use for any ESP or self-hosted system that can sign payloads (HMAC-SHA256).',
@@ -18,6 +23,7 @@ const TRACK_HELP = {
 const PRESETS = {
   gmail:   { label:'Gmail / Workspace', host:'smtp.gmail.com', port:587, imap:'imap.gmail.com', pop:'pop.gmail.com', note:'Use a 16-character App Password (Google Account → Security → App passwords).' },
   outlook: { label:'Outlook / Microsoft 365', host:'smtp.office365.com', port:587, imap:'outlook.office365.com', pop:'outlook.office365.com', note:'Use an app password if your tenant requires modern auth.' },
+  hostinger:{ label:'Hostinger Email', host:'smtp.hostinger.com', port:465, imap:'imap.hostinger.com', pop:'pop.hostinger.com', note:'Username = full email address; password = the MAILBOX password (hPanel → Emails → Manage → Password), NOT your hPanel account password. IMAP imap.hostinger.com:993 · SMTP smtp.hostinger.com:465 (or 587 STARTTLS).' },
   custom:  { label:'Custom domain', host:'', port:587, imap:'', pop:'', note:'Any SMTP server that accepts username + password.' }
 };
 
@@ -99,7 +105,7 @@ export default function AccountConnector() {
   const [form, setForm] = useState({ fromEmail:'', fromName:'', dailyCap:50, stream:'outreach' });
   const [creds, setCreds] = useState({ host:'smtp.gmail.com', port:587, secure:false, user:'', pass:'' });
   const [esp, setEsp] = useState({ provider:'sendgrid', apiKey:'', domain:'' });
-  const [trackMethod, setTrackMethod] = useState('webhook');
+  const [trackMethod, setTrackMethod] = useState('imap');
   const [trackCfg, setTrackCfg] = useState({ imap:{ host:'imap.gmail.com', port:993, user:'', pass:'' },
     pop3:{ host:'pop.gmail.com', port:995, user:'', pass:'' }, mailapi:{ provider:'sendgrid', apiKey:'', domain:'' },
     webhook:{}, hostinger:{ token:'' } });
@@ -131,7 +137,11 @@ export default function AccountConnector() {
   const domain = String(form.fromEmail||'').split('@')[1]?.toLowerCase() || '';
   const domainSource = domain ? accounts.find(a =>
     String(a.fromEmail||'').split('@')[1]?.toLowerCase()===domain && a.tracking?.status==='verified') : null;
-  const recommendation = domainSource?.tracking?.method && domainSource.tracking.method!==trackMethod
+  // Recommend only channels a NEW mailbox can actually pick (legacy webhook /
+  // Hostinger accounts keep theirs, but we don't offer it to new mailboxes).
+  const recommendation = domainSource?.tracking?.method
+    && TRACK_OPTIONS.includes(domainSource.tracking.method)
+    && domainSource.tracking.method !== trackMethod
     ? { method: domainSource.tracking.method, email: domainSource.fromEmail } : null;
   const applyRecommendation = () => {
     setTrackMethod(recommendation.method);
@@ -287,8 +297,8 @@ export default function AccountConnector() {
             <p className="muted" style={{margin:'4px 0 0',fontSize:12}}>How this mailbox reports bounces &amp; complaints. Pick one — it is <b>tested live</b>, and the mailbox is only added if the test passes.</p></div>
         </div>
         <div className="row" style={{gap:8,marginTop:10,flexWrap:'wrap'}}>
-          {Object.entries(TRACK_LABEL).map(([k,l]) =>
-            <button key={k} className={`chip ${trackMethod===k?'chip-active':''}`} onClick={()=>setTrackMethod(k)}>{l}</button>)}
+          {TRACK_OPTIONS.map(k =>
+            <button key={k} className={`chip ${trackMethod===k?'chip-active':''}`} onClick={()=>setTrackMethod(k)}>{TRACK_LABEL[k]}</button>)}
         </div>
         {recommendation && <div className="notice" style={{marginTop:10}}>
           <b>Recommended for {domain}:</b> <b>{TRACK_LABEL[recommendation.method]}</b> is already verified on {recommendation.email} —
@@ -362,16 +372,16 @@ export default function AccountConnector() {
           </td></tr>}
           {editTrack===a._id && <tr><td colSpan={5} style={{background:'var(--surface)'}}>
             <div className="row" style={{gap:8,flexWrap:'wrap',alignItems:'center'}}>
-             {Object.entries(TRACK_LABEL).map(([k,l]) =>
+             {[...(isLegacyTrack(a.tracking?.method) ? [a.tracking.method] : []), ...TRACK_OPTIONS].map(k =>
               <button key={k} className={`chip ${editCfg?.method===k?'chip-active':''}`}
-               onClick={()=>setEditCfg(c=>({method:k,...(k==='webhook'?{secret:c?.secret||''}:k==='hostinger'?{token:''}:k==='mailapi'?{provider:'sendgrid',apiKey:'',domain:''}:{host:'',port:'',user:'',pass:''})}))}>{l}</button>)}
+               onClick={()=>setEditCfg(c=>({method:k,...(k==='webhook'?{secret:c?.secret||''}:k==='hostinger'?{token:''}:k==='mailapi'?{provider:'sendgrid',apiKey:'',domain:''}:{host:'',port:'',user:'',pass:''})}))}>{TRACK_LABEL[k]}</button>)}
             </div>
             <TrackingFields method={editCfg?.method||'webhook'} cfg={editCfg||{}} setCfg={c=>setEditCfg(c)}/>
             <div className="row" style={{gap:8,marginTop:10}}>
              <button className="btn sm" disabled={trackTesting===a._id} onClick={()=>saveEditTracking(a)}>
               {trackTesting===a._id?'Testing…':'Test & save channel'}</button>
              <button className="btn ghost sm" onClick={()=>setEditTrack('')}>Cancel</button>
-             <span className="muted" style={{fontSize:11}}>IMAP/POP3/Mail-API/Hostinger: re-enter credentials or token (encrypted, never shown) — switching away from Hostinger deletes its webhook. Webhook: keep or paste a new secret.</span>
+             <span className="muted" style={{fontSize:11}}>IMAP/POP3/Mail API: re-enter credentials (encrypted, never shown). Existing Webhook/Hostinger mailboxes keep their channel and can be re-tested or have their secret updated — new mailboxes choose IMAP, POP3 or Mail API.</span>
             </div>
           </td></tr>}
         </Fragment>)}

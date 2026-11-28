@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { get, post, patch, del } from '../../../lib/api';
 import PageHead from '../../../components/PageHead';
 import Modal from '../../../components/Modal';
@@ -10,6 +11,17 @@ import { parseCSV, guessMapping, buildContacts } from '../../../lib/csv';
 import { notify } from '../../../lib/notify';
 
 const arr = v => Array.isArray(v) ? v : (v?.items || []);
+
+// Bounce history beats any older "valid" verdict — a bounced contact is
+// INVALID for sending, so the badge must never claim otherwise (stale rows
+// self-heal on the next verification run).
+const effVerification = c => {
+ const v = c.verification;
+ if (!v?.status) return null;
+ if ((c.status === 'bounced' || c.status === 'complained') && v.status !== 'INVALID')
+  return { ...v, status:'INVALID', reason:'bounced' };
+ return v;
+};
 
 export default function Contacts(){
  const toast = useToast();
@@ -41,21 +53,41 @@ export default function Contacts(){
  const [editLists,setEditLists] = useState([]);
  const [contactsLoading,setContactsLoading] = useState(true);
  const [page,setPage] = useState(0),[total,setTotal]=useState(0),[selected,setSelected]=useState([]),[targetList,setTargetList]=useState(''),[actionBusy,setActionBusy]=useState(false);
+ const [verifFilter,setVerifFilter]=useState('');   // '' | UNVERIFIED | status
+ const [vStats,setVStats]=useState(null);          // GET /contacts/verification-stats
+ const [verifyBusy,setVerifyBusy]=useState(false);
+
+ const loadStats = () => get('/contacts/verification-stats').then(r=>setVStats(r)).catch(()=>{});
 
  const load = async () => {
   const epoch=++loadEpoch.current;
   try {
-   const query = new URLSearchParams({limit:'100',skip:String(page*100),...(search ? {search}:{}),...(listFilter ? {listId:listFilter}:{})});
+   const query = new URLSearchParams({limit:'100',skip:String(page*100),...(search ? {search}:{}),...(listFilter ? {listId:listFilter}:{}),
+     ...(verifFilter ? {verification:verifFilter}:{})});
    const [c,l] = await Promise.all([get(`/contacts?${query}`), get('/contacts/lists')]);
    if(epoch !== loadEpoch.current)return;
    setItems(arr(c)); setTotal(c.total ?? arr(c).length); setLists(arr(l));
+   loadStats();
   } catch(e) { if(epoch===loadEpoch.current)notify(toast, e); } finally { if(epoch===loadEpoch.current)setContactsLoading(false); }
  };
- useEffect(() => { ++loadEpoch.current; setContactsLoading(true); setItems([]); setSelected([]); const timer=setTimeout(load,250); return ()=>clearTimeout(timer); }, [search,listFilter,page]);
- useEffect(() => { setSelected([]); }, [search,listFilter,page]);
+ useEffect(() => { ++loadEpoch.current; setContactsLoading(true); setItems([]); setSelected([]); const timer=setTimeout(load,250); return ()=>clearTimeout(timer); }, [search,listFilter,verifFilter,page]);
+ useEffect(() => { setSelected([]); }, [search,listFilter,verifFilter,page]);
 
  const loadTokens = () => get('/personalization/tokens').then(r => setCustomTokens(arr(r.custom || []))).catch(()=>{});
- useEffect(() => { loadTokens(); if (new URLSearchParams(location.search).get('personalize')) setPersonalizeOpen(true); }, []);
+ useEffect(() => { loadTokens(); loadStats(); if (new URLSearchParams(location.search).get('personalize')) setPersonalizeOpen(true); }, []);
+
+ // Verify selected (or a single row) — PENDING + queue; fresh duplicates come
+ // back skipped (free), credits are only spent on real work.
+ const verifyContacts = async (ids) => {
+  if(!ids.length || verifyBusy)return;
+  setVerifyBusy(true);
+  try {
+   const r = await post('/contacts/verify', { contactIds: ids });
+   toast({ title:`${r.queued} address(es) queued for verification`,
+     message:`${r.skippedFresh||0} already fresh (free) · ${r.note||'Results appear within seconds — refresh shortly.'}` });
+   setSelected([]); await load(); loadStats();
+  } catch(e){ notify(toast,e); } finally { setVerifyBusy(false); }
+ };
 
  const createList = async () => {
   if (newList.trim().length < 2) { toast('List name must be at least 2 characters','warn'); return; }
@@ -147,7 +179,8 @@ export default function Contacts(){
    actions={<div className="row"><input placeholder="Search contacts…" value={search} onChange={e=>{setPage(0);setSearch(e.target.value);}}/>
     <button className="btn secondary sm" onClick={()=>{setCsvOpen(true);setStep('upload');}}><Icon name="download" size={15}/> Upload CSV</button>
     <button className="btn ghost sm" onClick={()=>setPersonalizeOpen(true)}><Icon name="mail" size={15}/> Personalization</button>
-    <button className="btn ghost sm" onClick={()=>{setPasteListId(listFilter);setBulkOpen(true);}}>Paste emails</button></div>}/>
+    <button className="btn ghost sm" onClick={()=>{setPasteListId(listFilter);setBulkOpen(true);}}>Paste emails</button>
+    <Link className="btn ghost sm" href="/dashboard/verification"><Icon name="check" size={15}/> Verify</Link></div>}/>
 
   {csvOpen && <div className="card luxe-card csv-panel">
    <div className="mini-row"><div><h2 style={{margin:0}}>Import contacts from a file</h2>
@@ -261,9 +294,22 @@ No duplicates.</h3><p>Already in your workspace? We’ll reuse the contact and a
        <b>{selected.length} selected</b><span className="muted">Selection is for this page only</span>
        <select value={targetList} onChange={e=>setTargetList(e.target.value)} aria-label="Destination list"><option value="">Choose list…</option>{lists.map(l=><option key={l._id} value={l._id}>{l.name}</option>)}</select>
        <button className="btn secondary sm" disabled={!selected.length||actionBusy||contactsLoading} onClick={()=>doBulk('add_to_list')}>Add to list</button>
+       <button className="btn sm" disabled={!selected.length||verifyBusy||contactsLoading} onClick={()=>verifyContacts(selected)} title="1 credit per real check · fresh duplicates free">
+         {verifyBusy?'Queuing…':'Verify selected'}</button>
        <button className="btn ghost sm" disabled={!selected.length||actionBusy||contactsLoading} onClick={()=>doBulk('delete')}>Delete selected</button>
      </div>
-     <table><thead><tr><th><input type="checkbox" disabled={contactsLoading} aria-label="Select all contacts on this page" checked={visible.length>0 && visible.every(c=>selected.includes(c._id))} onChange={e=>setSelected(e.target.checked?visible.map(c=>c._id):[])} /></th><th>Contact</th><th>Company</th><th>Categories</th><th>Status</th><th></th></tr></thead><tbody>
+     {vStats && <div className="row" style={{gap:6,flexWrap:'wrap',padding:'0 14px 10px',alignItems:'center'}}>
+       <button className={`chip ${!verifFilter?'chip-active':''}`} onClick={()=>{setPage(0);setVerifFilter('');}}>All {vStats.total??0}</button>
+       <button className={`chip ${verifFilter==='UNVERIFIED'?'chip-active':''}`} onClick={()=>{setPage(0);setVerifFilter(verifFilter==='UNVERIFIED'?'':'UNVERIFIED');}}>Not checked {vStats.counts?.UNVERIFIED??0}</button>
+       {['PENDING','VALID','INVALID','CATCH_ALL','RISKY','UNKNOWN','ERROR'].map(s=>
+         (vStats.counts?.[s]>0 || verifFilter===s) &&
+         <button key={s} className={`chip ${verifFilter===s?'chip-active':''}`}
+           onClick={()=>{setPage(0);setVerifFilter(verifFilter===s?'':s);}}>{s==='CATCH_ALL'?'Catch-all':s[0]+s.slice(1).toLowerCase()} {vStats.counts?.[s]??0}</button>)}
+       <span className="muted" style={{marginLeft:'auto',fontSize:11}}>
+         {vStats.credits ? `verification credits: ${vStats.credits.remaining<0?'unlimited':vStats.credits.remaining} left` : ''}
+       </span>
+     </div>}
+     <table><thead><tr><th><input type="checkbox" disabled={contactsLoading} aria-label="Select all contacts on this page" checked={visible.length>0 && visible.every(c=>selected.includes(c._id))} onChange={e=>setSelected(e.target.checked?visible.map(c=>c._id):[])} /></th><th>Contact</th><th>Company</th><th>Categories</th><th>Status</th><th>Verified</th><th></th></tr></thead><tbody>
       {visible.map(c=><tr key={c._id}>
        <td><input type="checkbox" aria-label={`Select ${c.email}`} checked={selected.includes(c._id)} onChange={()=>toggleSelected(c._id)} /></td>
        <td><div className="row"><span className="avatar">{(c.email||'?')[0].toUpperCase()}</span>
@@ -275,12 +321,19 @@ No duplicates.</h3><p>Already in your workspace? We’ll reuse the contact and a
        <td><span className={`badge ${c.status === 'bounced' ? 'danger' : c.status === 'unsubscribed' ? 'warn' : 'ok'}`}>
          {c.status || 'subscribed'}</span>
         <div className="muted" style={{fontSize:11}}>{c.consentSource ? `consent · ${c.consentSource}` : 'consent · not recorded'}</div></td>
-       <td><button className="btn ghost sm" onClick={()=>openEditor(c)}><Icon name="contacts" size={14}/> Lists</button> <button className="btn ghost sm" disabled={actionBusy} onClick={()=>doBulk('delete',[c._id])} aria-label={`Delete ${c.email}`}>Delete</button></td>
+       <td>{(() => { const v = effVerification(c); return v
+        ? <span className={`badge ${{VALID:'ok',INVALID:'danger',CATCH_ALL:'warn',RISKY:'warn',ERROR:'warn',PENDING:'',UNKNOWN:''}[v.status]||''}`}
+            title={v.reason||''}>{v.status==='CATCH_ALL'?'catch-all':v.status.toLowerCase()}</span>
+        : <span className="muted" style={{fontSize:11}}>not checked</span>; })()}</td>
+       <td><button className="btn ghost sm" onClick={()=>openEditor(c)}><Icon name="contacts" size={14}/> Lists</button>
+        {c.verification?.status!=='VALID' && <button className="btn ghost sm" disabled={verifyBusy}
+          onClick={()=>verifyContacts([c._id])} aria-label={`Verify ${c.email}`} title="Verify this address (1 credit if a real check is needed)">Verify</button>}
+        <button className="btn ghost sm" disabled={actionBusy} onClick={()=>doBulk('delete',[c._id])} aria-label={`Delete ${c.email}`}>Delete</button></td>
       </tr>)}
       {contactsLoading && !visible.length && [0,1,2,3,4].map(r=><tr key={`sk${r}`} aria-hidden="true">
-       {[0,1,2,3,4,5].map(cell=><td key={cell}><span className="skeleton-block" style={{display:'block',width:`${46+((r+cell)%3)*16}%`,height:9}}/></td>)}
+       {[0,1,2,3,4,5,6].map(cell=><td key={cell}><span className="skeleton-block" style={{display:'block',width:`${46+((r+cell)%3)*16}%`,height:9}}/></td>)}
       </tr>)}
-      {!contactsLoading && !visible.length&&<tr><td colSpan={6}><div className="empty">No contacts here yet.</div></td></tr>}
+      {!contactsLoading && !visible.length&&<tr><td colSpan={7}><div className="empty">No contacts here yet.</div></td></tr>}
      </tbody></table>
      <div className="contacts-page-nav"><span>{total ? `${page*100+1}–${Math.min((page+1)*100,total)} of ${total}` : '0 contacts'}</span><button className="btn ghost sm" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Previous</button><button className="btn ghost sm" disabled={(page+1)*100>=total} onClick={()=>setPage(p=>p+1)}>Next</button></div>
     </div>
